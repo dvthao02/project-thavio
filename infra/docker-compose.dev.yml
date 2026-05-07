@@ -1,0 +1,27 @@
+version: '3.9'
+
+# Development override: only DB + Redis, API/Web run via pnpm dev
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pos_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pos_user
+      POSTGRES_PASSWORD: pos_secret
+      POSTGRES_DB: pos_db
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ../database/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - '5432:5432'
+
+  redis:
+    image: redis:7-alpine
+    container_name: pos_redis_dev
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+
+volumes:
+  postgres_dev_data:

@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "POS MasterV2 (local)",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "pos_masterv2",
+      "Username": "posadmin",
+      "SSLMode": "prefer",
+      "PassFile": "/pgpass"
+    }
+  }
+}

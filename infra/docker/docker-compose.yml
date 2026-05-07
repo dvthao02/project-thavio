@@ -1,0 +1,72 @@
+# =====================================================================
+# POS MasterV2 — Local Development Stack
+#   PostgreSQL 18 (Alpine) + pgAdmin 4
+# Usage:
+#   cp .env.example .env
+#   make up
+#   make migrate
+# =====================================================================
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: pos_masterv2_db
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGTZ: Asia/Ho_Chi_Minh
+      TZ: Asia/Ho_Chi_Minh
+      # PRODUCTION: thêm POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      # và mount cert vào /var/lib/postgresql/server.crt + server.key
+      # rồi bật ssl=on trong postgresql.conf
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Mount source migrations (read-only) so run_migrations.sh có thể đọc
+      - ../../database/migrations_source:/migrations_source:ro
+      - ../../database/migrations:/migrations:ro
+      - ../../database/scripts:/db_scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    networks:
+      - pos_net
+    shm_size: 256mb
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pos_masterv2_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pos_net
+
+volumes:
+  pgdata:
+    name: pos_masterv2_pgdata
+  pgadmin_data:
+    name: pos_masterv2_pgadmin_data
+
+networks:
+  pos_net:
+    name: pos_masterv2_net
+    driver: bridge
