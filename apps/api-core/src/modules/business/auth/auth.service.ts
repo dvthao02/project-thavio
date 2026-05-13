@@ -57,8 +57,10 @@ export class AuthService {
     const pool = this.businessDb.getPool(business.schemaName!);
     const { rows } = await pool.query<StaffRow>(
       `SELECT id, email, full_name, display_name, role, is_active, employment_status, password_hash
-       FROM staff_members WHERE email = $1 LIMIT 1`,
-      [dto.email],
+       FROM staff_members
+       WHERE email = $1 OR staff_code = $1 OR phone = $1
+       LIMIT 1`,
+      [dto.identifier],
     );
 
     const staff = rows[0];
