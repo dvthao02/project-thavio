@@ -87,7 +87,24 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
 
   async getOne(id: string) {
     const [business] = await this.platformDb.db
-      .select()
+      .select({
+        id: businesses.id,
+        businessCode: businesses.businessCode,
+        schemaName: businesses.schemaName,
+        legalName: businesses.legalName,
+        brandName: businesses.brandName,
+        status: businesses.status,
+        subscriptionPlan: businesses.subscriptionPlan,
+        email: businesses.email,
+        phone: businesses.phone,
+        taxCode: businesses.taxCode,
+        currencyCode: businesses.currencyCode,
+        timezoneName: businesses.timezoneName,
+        note: businesses.note,
+        subscriptionExpiresAt: businesses.subscriptionExpiresAt,
+        createdAt: businesses.createdAt,
+        updatedAt: businesses.updatedAt,
+      })
       .from(businesses)
       .where(eq(businesses.id, id))
       .limit(1);
@@ -188,7 +205,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       `);
 
       // Step 7: Seed RBAC permissions + role_permissions
-      const seedPath = path.join(process.cwd(), '..', '..', 'database', 'seeds', 'seed_business_rbac.sql');
+      const seedPath = path.join(__dirname, '..', '..', '..', '..', '..', '..', 'database', 'src', 'business_extensions', '0290_seed_business_full_rbac.sql');
       const rawSql = fs.readFileSync(seedPath, 'utf-8');
       const cleanSql = rawSql
         .split('\n')
@@ -234,6 +251,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         await this.adminPool.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`).catch(() => {});
       }
       if (businessId) {
+        await this.platformDb.db.delete(businessSubscriptions).where(eq(businessSubscriptions.businessId, businessId)).catch(() => {});
         await this.platformDb.db.delete(businesses).where(eq(businesses.id, businessId)).catch(() => {});
       }
       throw err;

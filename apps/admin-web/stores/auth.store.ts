@@ -23,19 +23,21 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (token, user) => {
         if (typeof window !== 'undefined') {
           localStorage.setItem('admin_token', token);
+          document.cookie = `admin_token=${token}; path=/; SameSite=Lax`;
         }
         set({ token, user });
       },
       clearAuth: () => {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('admin_token');
+          document.cookie = 'admin_token=; path=/; max-age=0; SameSite=Lax';
         }
         set({ token: null, user: null });
       },
     }),
     {
       name: 'admin-auth',
-      partialize: (state) => ({ token: state.token, user: state.user }),
+      partialize: (state) => ({ user: state.user }),
     },
   ),
 );
