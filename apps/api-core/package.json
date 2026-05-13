@@ -1,0 +1,32 @@
+{
+  "name": "@thavio/api-core",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node node_modules/@nestjs/cli/bin/nest.js start --watch",
+    "build": "node node_modules/@nestjs/cli/bin/nest.js build",
+    "db:sync": "node scripts/db-sync.js",
+    "db:sync:platform": "node scripts/db-sync.js --platform",
+    "db:sync:business": "node scripts/db-sync.js --business"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.20",
+    "@nestjs/core": "^11.1.20",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/platform-express": "^11.1.20",
+    "bcrypt": "^6.0.0",
+    "drizzle-orm": "^0.44.0",
+    "pg": "^8.13.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.21",
+    "@types/bcrypt": "^6.0.0",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.31.0",
+    "typescript": "^5.4.0"
+  }
+}
