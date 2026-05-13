@@ -8,8 +8,8 @@ export const documentSequencesInBusinessTemplate = businessTemplate.table("docum
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	storeId: uuid("store_id"),
 	docType: varchar("doc_type", { length: 50 }).notNull(),
-	prefix: varchar({ length: 20 }).default(').notNull(),
-	suffix: varchar({ length: 20 }).default(').notNull(),
+	prefix: varchar({ length: 20 }).default('').notNull(),
+	suffix: varchar({ length: 20 }).default('').notNull(),
 	padLength: integer("pad_length").default(6).notNull(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	lastNumber: bigint("last_number", { mode: "number" }).default(0).notNull(),
@@ -1110,11 +1110,6 @@ export const cashAccountsInBusinessTemplate = businessTemplate.table("cash_accou
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
-			columns: [table.bankMasterId],
-			foreignColumns: [bankMaster.id],
-			name: "fk_cash_accounts_bank"
-		}),
-	foreignKey({
 			columns: [table.storeId],
 			foreignColumns: [storesInBusinessTemplate.id],
 			name: "fk_cash_accounts_store"
@@ -1230,11 +1225,6 @@ export const deviceBindingsInBusinessTemplate = businessTemplate.table("device_b
 			columns: [table.storeId],
 			foreignColumns: [storesInBusinessTemplate.id],
 			name: "device_bindings_store_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.deviceIdentityId],
-			foreignColumns: [deviceIdentities.id],
-			name: "fk_db_device_identity"
 		}),
 	check("chk_binding_status", sql`(status)::text = ANY (ARRAY['active'::text, 'unbound'::text])`),
 ]);
@@ -1399,11 +1389,6 @@ export const staffAccountLinksInBusinessTemplate = businessTemplate.table("staff
 	unlinkedAt: timestamp("unlinked_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
 	index("idx_staff_account_links_account").using("btree", table.accountId.asc().nullsLast().op("uuid_ops")),
-	foreignKey({
-			columns: [table.accountId],
-			foreignColumns: [accounts.id],
-			name: "staff_account_links_account_id_fkey"
-		}),
 	foreignKey({
 			columns: [table.staffId],
 			foreignColumns: [staffMembersInBusinessTemplate.id],
@@ -2365,8 +2350,8 @@ export const invoiceNumberSequencesInBusinessTemplate = businessTemplate.table("
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	storeId: uuid("store_id"),
 	invoiceType: varchar("invoice_type", { length: 30 }).default('sales_invoice').notNull(),
-	prefix: varchar({ length: 30 }).default(').notNull(),
-	suffix: varchar({ length: 30 }).default(').notNull(),
+	prefix: varchar({ length: 30 }).default('').notNull(),
+	suffix: varchar({ length: 30 }).default('').notNull(),
 	padLength: integer("pad_length").default(6).notNull(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	lastNumber: bigint("last_number", { mode: "number" }).default(0).notNull(),
