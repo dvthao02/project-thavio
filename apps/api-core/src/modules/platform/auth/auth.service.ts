@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { accounts } from '@schema/platform';
@@ -14,17 +14,30 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto) {
+    const { identifier, password } = dto;
+
     const [account] = await this.platformDb.db
       .select()
       .from(accounts)
-      .where(eq(accounts.email, dto.email))
+      .where(
+        or(
+          eq(accounts.email!, identifier),
+          eq(accounts.username, identifier),
+          eq(accounts.phone!, identifier),
+        ),
+      )
       .limit(1);
 
     if (!account) throw new UnauthorizedException('Invalid credentials');
     if (account.status !== 'active') throw new UnauthorizedException('Account is not active');
 
-    const valid = await bcrypt.compare(dto.password, account.password);
+    const valid = await bcrypt.compare(password, account.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
+
+    await this.platformDb.db
+      .update(accounts)
+      .set({ lastLoginAt: new Date().toISOString() })
+      .where(eq(accounts.id, account.id));
 
     const payload = {
       sub: account.id,
