@@ -98,36 +98,36 @@ export default function NewBusinessPage() {
           <ChevronLeft size={20} />
         </Link>
         <div>
-          <h1 className="text-xl font-semibold text-foreground">New Business</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Provision a new tenant on the platform</p>
+          <h1 className="text-xl font-semibold text-foreground">Thêm doanh nghiệp</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Khởi tạo tenant mới trên nền tảng</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-card border border-border rounded-lg p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Business Info</h2>
+          <h2 className="text-sm font-semibold text-foreground">Thông tin doanh nghiệp</h2>
           <div className="grid grid-cols-2 gap-4">
             {field(
-              'Business Code *',
+              'Mã doanh nghiệp *',
               input(form.businessCode, (v) => setForm({ ...form, businessCode: v }), {
                 placeholder: 'test_coffee',
                 required: true,
                 pattern: '[a-z0-9_]{3,50}',
-                title: 'Lowercase letters, numbers, underscores only (3–50 chars)',
+                title: 'Chỉ dùng chữ thường, số, dấu gạch dưới (3–50 ký tự)',
               }),
             )}
             {field(
-              'Legal Name *',
+              'Tên pháp lý *',
               input(form.legalName, (v) => setForm({ ...form, legalName: v }), {
-                placeholder: 'Coffee Shop Ltd.',
+                placeholder: 'Công ty TNHH Cà Phê',
                 required: true,
               }),
             )}
           </div>
           {field(
-            'Brand Name',
+            'Tên thương hiệu',
             input(form.brandName!, (v) => setForm({ ...form, brandName: v }), {
-              placeholder: 'Optional display name',
+              placeholder: 'Tên hiển thị (tuỳ chọn)',
             }),
           )}
           <div className="grid grid-cols-2 gap-4">
@@ -139,7 +139,7 @@ export default function NewBusinessPage() {
               }),
             )}
             {field(
-              'Phone',
+              'Số điện thoại',
               input(form.phone!, (v) => setForm({ ...form, phone: v }), {
                 placeholder: '0901234567',
               }),
@@ -147,7 +147,7 @@ export default function NewBusinessPage() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             {field(
-              'Timezone',
+              'Múi giờ',
               <select
                 value={form.timezone}
                 onChange={(e) => setForm({ ...form, timezone: e.target.value })}
@@ -160,7 +160,7 @@ export default function NewBusinessPage() {
               </select>,
             )}
             {field(
-              'Plan',
+              'Gói dịch vụ',
               <select
                 value={form.plan}
                 onChange={(e) => setForm({ ...form, plan: e.target.value })}
@@ -177,7 +177,7 @@ export default function NewBusinessPage() {
 
         <div className="bg-card border border-border rounded-lg p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">First Store</h2>
+            <h2 className="text-sm font-semibold text-foreground">Chi nhánh đầu tiên</h2>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -185,19 +185,19 @@ export default function NewBusinessPage() {
                 onChange={(e) => setWithStore(e.target.checked)}
                 className="rounded border-input"
               />
-              <span className="text-sm text-muted-foreground">Include</span>
+              <span className="text-sm text-muted-foreground">Thêm</span>
             </label>
           </div>
           {withStore && (
             <div className="grid grid-cols-2 gap-4">
               {field(
-                'Store Name',
+                'Tên chi nhánh',
                 input(store.storeName, (v) => setStore({ ...store, storeName: v }), {
-                  placeholder: 'Main Branch',
+                  placeholder: 'Chi nhánh chính',
                 }),
               )}
               {field(
-                'Store Code',
+                'Mã chi nhánh',
                 input(store.storeCode, (v) => setStore({ ...store, storeCode: v }), {
                   placeholder: 'main',
                 }),
@@ -208,7 +208,7 @@ export default function NewBusinessPage() {
 
         <div className="bg-card border border-border rounded-lg p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">Owner Account</h2>
+            <h2 className="text-sm font-semibold text-foreground">Tài khoản chủ sở hữu</h2>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -216,15 +216,15 @@ export default function NewBusinessPage() {
                 onChange={(e) => setWithOwner(e.target.checked)}
                 className="rounded border-input"
               />
-              <span className="text-sm text-muted-foreground">Include</span>
+              <span className="text-sm text-muted-foreground">Thêm</span>
             </label>
           </div>
           {withOwner && (
             <div className="space-y-4">
               {field(
-                'Full Name',
+                'Họ và tên',
                 input(owner.ownerFullName, (v) => setOwner({ ...owner, ownerFullName: v }), {
-                  placeholder: 'Nguyen Van A',
+                  placeholder: 'Nguyễn Văn A',
                 }),
               )}
               <div className="grid grid-cols-2 gap-4">
@@ -236,10 +236,10 @@ export default function NewBusinessPage() {
                   }),
                 )}
                 {field(
-                  'Password',
+                  'Mật khẩu',
                   input(owner.ownerPassword, (v) => setOwner({ ...owner, ownerPassword: v }), {
                     type: 'password',
-                    placeholder: '8+ characters',
+                    placeholder: 'Tối thiểu 8 ký tự',
                   }),
                 )}
               </div>
@@ -257,13 +257,13 @@ export default function NewBusinessPage() {
             disabled={mutation.isPending}
             className="bg-primary text-primary-foreground text-sm font-medium px-5 py-2.5 rounded-md hover:bg-primary-600 disabled:opacity-50 transition"
           >
-            {mutation.isPending ? 'Provisioning…' : 'Create Business'}
+            {mutation.isPending ? 'Đang tạo…' : 'Tạo doanh nghiệp'}
           </button>
           <Link
             href="/businesses"
             className="text-sm font-medium px-5 py-2.5 rounded-md border border-input hover:bg-muted transition text-foreground"
           >
-            Cancel
+            Hủy
           </Link>
         </div>
       </form>

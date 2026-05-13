@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -14,9 +13,9 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth.store';
 
 const NAV = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/businesses', label: 'Businesses', icon: Building2 },
-  { href: '/accounts', label: 'Accounts', icon: Users },
+  { href: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard },
+  { href: '/businesses', label: 'Doanh nghiệp', icon: Building2 },
+  { href: '/accounts', label: 'Tài khoản', icon: Users },
 ];
 
 export function Sidebar() {
@@ -33,7 +32,8 @@ export function Sidebar() {
   return (
     <aside className="w-60 shrink-0 h-screen flex flex-col bg-sidebar border-r border-sidebar-border">
       <div className="h-16 flex items-center px-5 border-b border-sidebar-border">
-        <Image src="/logo.png" alt="Thavio" width={120} height={36} priority />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="Thavio" className="h-8 w-auto object-contain" />
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
@@ -60,12 +60,12 @@ export function Sidebar() {
 
       <div className="p-3 border-t border-sidebar-border">
         <div className="flex items-center gap-3 px-3 py-2 mb-1">
-          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold uppercase">
-            {user?.username?.slice(0, 2) ?? 'AD'}
+          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold uppercase">
+            {(user?.username ?? 'AD').slice(0, 2)}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-foreground truncate">{user?.username ?? 'Admin'}</p>
-            <p className="text-xs text-muted-foreground truncate">{user?.role ?? 'platform_owner'}</p>
+            <p className="text-xs text-muted-foreground truncate">Quản trị viên</p>
           </div>
         </div>
         <button
@@ -73,7 +73,7 @@ export function Sidebar() {
           className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
         >
           <LogOut size={16} />
-          <span>Sign out</span>
+          <span>Đăng xuất</span>
         </button>
       </div>
     </aside>

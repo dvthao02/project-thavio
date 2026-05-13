@@ -39,16 +39,16 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           <Image src="/logo.png" alt="Thavio" width={160} height={48} priority className="mb-2" />
-          <p className="text-sm text-muted-foreground">Platform Administration</p>
+          <p className="text-sm text-muted-foreground">Quản trị nền tảng</p>
         </div>
 
         <div className="bg-card rounded-lg border border-border shadow-sm p-6">
-          <h1 className="text-lg font-semibold text-foreground mb-6">Sign in to your account</h1>
+          <h1 className="text-lg font-semibold text-foreground mb-6">Đăng nhập</h1>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="identifier" className="block text-sm font-medium text-foreground mb-1.5">
-                Email or Username
+                Email hoặc tên đăng nhập
               </label>
               <input
                 id="identifier"
@@ -63,7 +63,7 @@ export default function LoginPage() {
 
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-foreground mb-1.5">
-                Password
+                Mật khẩu
               </label>
               <input
                 id="password"
@@ -85,7 +85,7 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full bg-primary text-primary-foreground text-sm font-medium px-4 py-2.5 rounded-md hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              {loading ? 'Signing in…' : 'Sign in'}
+              {loading ? 'Đang đăng nhập…' : 'Đăng nhập'}
             </button>
           </form>
         </div>
