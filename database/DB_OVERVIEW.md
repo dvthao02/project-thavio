@@ -22,7 +22,7 @@ platform schema                    tenant_XXX schema (clone từ business_templa
 ─────────────────               ──────────────────────────────────────────────
 accounts                         stores ──── registers ──── work_shifts
 auth_sessions                       │
-tenants ──┐                        ├── products ──── variants ──── inventory
+business ──┐                        ├── products ──── variants ──── inventory
           │                        ├── customers ──── wallets ──── loyalty
           └── business_template       ├── sales_orders ──── payments
               (177 tables)          ├── purchase_orders ──── supplier_payables
@@ -45,7 +45,7 @@ Triggers live (sau khi áp 08_DB_CRITICAL_FIXES):
 # SCHEMA: `platform`
 
 > Hạ tầng SaaS: quản lý business, tài khoản hệ thống, billing, subscription.
-> **Mỗi khách hàng (business) = 1 row trong `tenants`**.
+> **Mỗi khách hàng (business) = 1 row trong `business`**.
 
 ---
 
@@ -112,7 +112,7 @@ Nhận diện thiết bị đăng nhập (máy POS, điện thoại, tablet).
 
 ## Module 2 — Multi-Tenancy
 
-### `tenants`
+### `business`
 Mỗi business (cửa hàng/chuỗi) = 1 row. Trung tâm của toàn bộ hệ thống.
 
 | Column | Giải thích |
@@ -142,7 +142,7 @@ Các branch (chi nhánh schema) của business. Một business có thể có nhi
 
 ---
 
-### `account_tenants`
+### `account_business`
 Bảng nối: tài khoản nào có quyền vào business nào.
 
 | Column | Giải thích |

@@ -1,6 +1,6 @@
 -- ════════════════════════════════════════════════════════════════
 -- MODULE 0-A: EXTENSIONS + PLATFORM SCHEMA
--- Chạy với user superuser (vanthao)
+-- Chạy với user superuser (dvthao) 
 -- ════════════════════════════════════════════════════════════════
 CREATE SCHEMA IF NOT EXISTS platform;
 
