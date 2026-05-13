@@ -17,7 +17,7 @@
 ## What remains open
 
 - Identify the 2 platform tables dropped since May 10 audit (no migration log entry).
-- Apply `password_hash NOT NULL` to provisioned schemas (`business_test`, `business_test_coffee`) — migration 13 only targeted `business_template`.
+- ~~Apply `password_hash NOT NULL` to provisioned schemas~~ — done 2026-05-13.
 - Consider PII encryption for customer and staff data.
 - Classify uncategorized tables in `scripts/db-sync.js`.
 
