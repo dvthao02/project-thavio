@@ -24,10 +24,10 @@ interface ListResponse {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
-  active:   { label: 'Hoạt động',  cls: 'bg-success/10 text-success' },
-  trial:    { label: 'Dùng thử',   cls: 'bg-warning/10 text-warning' },
-  suspended:{ label: 'Tạm khóa',   cls: 'bg-destructive/10 text-destructive' },
-  inactive: { label: 'Ngừng HĐ',   cls: 'bg-muted text-muted-foreground' },
+  active:    { label: 'Hoạt động', cls: 'bg-success/10 text-success' },
+  pending:   { label: 'Chờ duyệt', cls: 'bg-warning/10 text-warning' },
+  suspended: { label: 'Tạm khóa',  cls: 'bg-destructive/10 text-destructive' },
+  inactive:  { label: 'Ngừng HĐ',  cls: 'bg-muted text-muted-foreground' },
 };
 
 const PLAN_CLS: Record<string, string> = {
@@ -91,7 +91,7 @@ export default function BusinessesPage() {
         >
           <option value="">Tất cả trạng thái</option>
           <option value="active">Hoạt động</option>
-          <option value="trial">Dùng thử</option>
+          <option value="pending">Chờ duyệt</option>
           <option value="suspended">Tạm khóa</option>
           <option value="inactive">Ngừng hoạt động</option>
         </select>

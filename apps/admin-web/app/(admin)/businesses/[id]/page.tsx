@@ -21,15 +21,15 @@ interface Business {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
-  active:   { label: 'Hoạt động',  cls: 'bg-success/10 text-success' },
-  trial:    { label: 'Dùng thử',   cls: 'bg-warning/10 text-warning' },
-  suspended:{ label: 'Tạm khóa',   cls: 'bg-destructive/10 text-destructive' },
-  inactive: { label: 'Ngừng HĐ',   cls: 'bg-muted text-muted-foreground' },
+  active:    { label: 'Hoạt động', cls: 'bg-success/10 text-success' },
+  pending:   { label: 'Chờ duyệt', cls: 'bg-warning/10 text-warning' },
+  suspended: { label: 'Tạm khóa',  cls: 'bg-destructive/10 text-destructive' },
+  inactive:  { label: 'Ngừng HĐ',  cls: 'bg-muted text-muted-foreground' },
 };
 
 const STATUSES = [
   { key: 'active',    label: 'Hoạt động' },
-  { key: 'trial',     label: 'Dùng thử' },
+  { key: 'pending',   label: 'Chờ duyệt' },
   { key: 'suspended', label: 'Tạm khóa' },
   { key: 'inactive',  label: 'Ngừng HĐ' },
 ];

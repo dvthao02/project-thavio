@@ -61,11 +61,11 @@ export function Sidebar() {
       <div className="p-3 border-t border-sidebar-border">
         <div className="flex items-center gap-3 px-3 py-2 mb-1">
           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold uppercase">
-            {(user?.username ?? 'AD').slice(0, 2)}
+            {(user?.fullName ?? user?.email ?? 'AD').slice(0, 2)}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-foreground truncate">{user?.username ?? 'Admin'}</p>
-            <p className="text-xs text-muted-foreground truncate">Quản trị viên</p>
+            <p className="text-xs font-medium text-foreground truncate">{user?.fullName ?? user?.email ?? 'Admin'}</p>
+            <p className="text-xs text-muted-foreground truncate">{user?.isPlatformAdmin ? 'Platform Admin' : 'Quản trị viên'}</p>
           </div>
         </div>
         <button

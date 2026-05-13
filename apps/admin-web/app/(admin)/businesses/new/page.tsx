@@ -11,22 +11,28 @@ interface CreateBusinessPayload {
   businessCode: string;
   legalName: string;
   brandName?: string;
-  email?: string;
+  email: string;
   phone?: string;
-  timezone?: string;
+  timezone: string;
   plan: string;
-  firstStore?: {
+  firstStore: {
     storeName: string;
-    storeCode: string;
+    storeCode?: string;
+    address?: string;
+    city?: string;
   };
-  ownerEmail?: string;
-  ownerPassword?: string;
-  ownerFullName?: string;
+  ownerEmail: string;
+  ownerPassword: string;
+  ownerFullName: string;
 }
+
+const inputCls =
+  'w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring';
 
 export default function NewBusinessPage() {
   const router = useRouter();
-  const [form, setForm] = useState<CreateBusinessPayload>({
+
+  const [biz, setBiz] = useState({
     businessCode: '',
     legalName: '',
     brandName: '',
@@ -35,9 +41,7 @@ export default function NewBusinessPage() {
     timezone: 'Asia/Ho_Chi_Minh',
     plan: 'standard',
   });
-  const [withStore, setWithStore] = useState(false);
-  const [store, setStore] = useState({ storeName: '', storeCode: '' });
-  const [withOwner, setWithOwner] = useState(false);
+  const [store, setStore] = useState({ storeName: '', storeCode: '', address: '', city: '' });
   const [owner, setOwner] = useState({ ownerEmail: '', ownerPassword: '', ownerFullName: '' });
   const [error, setError] = useState('');
 
@@ -50,7 +54,7 @@ export default function NewBusinessPage() {
         err && typeof err === 'object' && 'response' in err
           ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
           : undefined;
-      setError(msg ?? 'Failed to create business.');
+      setError(msg ?? 'Tạo doanh nghiệp thất bại.');
     },
   });
 
@@ -58,37 +62,33 @@ export default function NewBusinessPage() {
     e.preventDefault();
     setError('');
     const payload: CreateBusinessPayload = {
-      businessCode: form.businessCode,
-      legalName: form.legalName,
-      ...(form.brandName && { brandName: form.brandName }),
-      ...(form.email && { email: form.email }),
-      ...(form.phone && { phone: form.phone }),
-      timezone: form.timezone,
-      plan: form.plan,
-      ...(withStore && store.storeName && { firstStore: store }),
-      ...(withOwner && owner.ownerEmail && { ...owner }),
+      businessCode: biz.businessCode,
+      legalName: biz.legalName,
+      ...(biz.brandName && { brandName: biz.brandName }),
+      email: biz.email,
+      ...(biz.phone && { phone: biz.phone }),
+      timezone: biz.timezone,
+      plan: biz.plan,
+      firstStore: {
+        storeName: store.storeName,
+        ...(store.storeCode && { storeCode: store.storeCode }),
+        ...(store.address && { address: store.address }),
+        ...(store.city && { city: store.city }),
+      },
+      ownerEmail: owner.ownerEmail,
+      ownerPassword: owner.ownerPassword,
+      ownerFullName: owner.ownerFullName,
     };
     mutation.mutate(payload);
   }
 
-  const field = (label: string, children: React.ReactNode) => (
+  const Field = ({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) => (
     <div>
-      <label className="block text-sm font-medium text-foreground mb-1.5">{label}</label>
+      <label className="block text-sm font-medium text-foreground mb-1.5">
+        {label} {required && <span className="text-destructive">*</span>}
+      </label>
       {children}
     </div>
-  );
-
-  const input = (
-    value: string,
-    onChange: (v: string) => void,
-    props?: React.InputHTMLAttributes<HTMLInputElement>,
-  ) => (
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-      {...props}
-    />
   );
 
   return (
@@ -104,147 +104,170 @@ export default function NewBusinessPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Thông tin doanh nghiệp */}
         <div className="bg-card border border-border rounded-lg p-5 space-y-4">
           <h2 className="text-sm font-semibold text-foreground">Thông tin doanh nghiệp</h2>
           <div className="grid grid-cols-2 gap-4">
-            {field(
-              'Mã doanh nghiệp *',
-              input(form.businessCode, (v) => setForm({ ...form, businessCode: v }), {
-                placeholder: 'test_coffee',
-                required: true,
-                pattern: '[a-z0-9_]{3,50}',
-                title: 'Chỉ dùng chữ thường, số, dấu gạch dưới (3–50 ký tự)',
-              }),
-            )}
-            {field(
-              'Tên pháp lý *',
-              input(form.legalName, (v) => setForm({ ...form, legalName: v }), {
-                placeholder: 'Công ty TNHH Cà Phê',
-                required: true,
-              }),
-            )}
+            <Field label="Mã doanh nghiệp" required>
+              <input
+                value={biz.businessCode}
+                onChange={(e) => setBiz({ ...biz, businessCode: e.target.value })}
+                className={inputCls}
+                placeholder="vd: my_coffee"
+                required
+                pattern="[a-z0-9_]{3,50}"
+                title="Chỉ dùng chữ thường, số, dấu gạch dưới (3–50 ký tự)"
+              />
+            </Field>
+            <Field label="Tên pháp lý" required>
+              <input
+                value={biz.legalName}
+                onChange={(e) => setBiz({ ...biz, legalName: e.target.value })}
+                className={inputCls}
+                placeholder="Công ty TNHH Cà Phê"
+                required
+              />
+            </Field>
           </div>
-          {field(
-            'Tên thương hiệu',
-            input(form.brandName!, (v) => setForm({ ...form, brandName: v }), {
-              placeholder: 'Tên hiển thị (tuỳ chọn)',
-            }),
-          )}
+
+          <Field label="Tên thương hiệu">
+            <input
+              value={biz.brandName}
+              onChange={(e) => setBiz({ ...biz, brandName: e.target.value })}
+              className={inputCls}
+              placeholder="Tên hiển thị (để trống = dùng tên pháp lý)"
+            />
+          </Field>
+
           <div className="grid grid-cols-2 gap-4">
-            {field(
-              'Email',
-              input(form.email!, (v) => setForm({ ...form, email: v }), {
-                type: 'email',
-                placeholder: 'contact@business.vn',
-              }),
-            )}
-            {field(
-              'Số điện thoại',
-              input(form.phone!, (v) => setForm({ ...form, phone: v }), {
-                placeholder: '0901234567',
-              }),
-            )}
+            <Field label="Email liên hệ" required>
+              <input
+                value={biz.email}
+                onChange={(e) => setBiz({ ...biz, email: e.target.value })}
+                className={inputCls}
+                type="email"
+                placeholder="contact@business.vn"
+                required
+              />
+            </Field>
+            <Field label="Số điện thoại">
+              <input
+                value={biz.phone}
+                onChange={(e) => setBiz({ ...biz, phone: e.target.value })}
+                className={inputCls}
+                placeholder="0901234567"
+              />
+            </Field>
           </div>
+
           <div className="grid grid-cols-2 gap-4">
-            {field(
-              'Múi giờ',
+            <Field label="Múi giờ">
               <select
-                value={form.timezone}
-                onChange={(e) => setForm({ ...form, timezone: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                value={biz.timezone}
+                onChange={(e) => setBiz({ ...biz, timezone: e.target.value })}
+                className={inputCls}
               >
                 <option value="Asia/Ho_Chi_Minh">Asia/Ho_Chi_Minh (UTC+7)</option>
                 <option value="Asia/Bangkok">Asia/Bangkok (UTC+7)</option>
                 <option value="Asia/Singapore">Asia/Singapore (UTC+8)</option>
                 <option value="UTC">UTC</option>
-              </select>,
-            )}
-            {field(
-              'Gói dịch vụ',
+              </select>
+            </Field>
+            <Field label="Gói dịch vụ">
               <select
-                value={form.plan}
-                onChange={(e) => setForm({ ...form, plan: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                value={biz.plan}
+                onChange={(e) => setBiz({ ...biz, plan: e.target.value })}
+                className={inputCls}
               >
                 <option value="starter">Starter</option>
                 <option value="standard">Standard</option>
                 <option value="professional">Professional</option>
                 <option value="enterprise">Enterprise</option>
-              </select>,
-            )}
+              </select>
+            </Field>
           </div>
         </div>
 
+        {/* Chi nhánh đầu tiên */}
         <div className="bg-card border border-border rounded-lg p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">Chi nhánh đầu tiên</h2>
-            <label className="flex items-center gap-2 cursor-pointer">
+          <h2 className="text-sm font-semibold text-foreground">Chi nhánh đầu tiên</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Tên chi nhánh" required>
               <input
-                type="checkbox"
-                checked={withStore}
-                onChange={(e) => setWithStore(e.target.checked)}
-                className="rounded border-input"
+                value={store.storeName}
+                onChange={(e) => setStore({ ...store, storeName: e.target.value })}
+                className={inputCls}
+                placeholder="Chi nhánh chính"
+                required
               />
-              <span className="text-sm text-muted-foreground">Thêm</span>
-            </label>
+            </Field>
+            <Field label="Mã chi nhánh">
+              <input
+                value={store.storeCode}
+                onChange={(e) => setStore({ ...store, storeCode: e.target.value })}
+                className={inputCls}
+                placeholder="STORE001"
+              />
+            </Field>
           </div>
-          {withStore && (
-            <div className="grid grid-cols-2 gap-4">
-              {field(
-                'Tên chi nhánh',
-                input(store.storeName, (v) => setStore({ ...store, storeName: v }), {
-                  placeholder: 'Chi nhánh chính',
-                }),
-              )}
-              {field(
-                'Mã chi nhánh',
-                input(store.storeCode, (v) => setStore({ ...store, storeCode: v }), {
-                  placeholder: 'main',
-                }),
-              )}
-            </div>
-          )}
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Địa chỉ">
+              <input
+                value={store.address}
+                onChange={(e) => setStore({ ...store, address: e.target.value })}
+                className={inputCls}
+                placeholder="123 Nguyễn Huệ"
+              />
+            </Field>
+            <Field label="Thành phố">
+              <input
+                value={store.city}
+                onChange={(e) => setStore({ ...store, city: e.target.value })}
+                className={inputCls}
+                placeholder="Hồ Chí Minh"
+              />
+            </Field>
+          </div>
         </div>
 
+        {/* Tài khoản chủ sở hữu */}
         <div className="bg-card border border-border rounded-lg p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">Tài khoản chủ sở hữu</h2>
-            <label className="flex items-center gap-2 cursor-pointer">
+          <h2 className="text-sm font-semibold text-foreground">Tài khoản chủ sở hữu</h2>
+          <p className="text-xs text-muted-foreground -mt-2">
+            Tài khoản đăng nhập vào POS/admin cửa hàng, được gán role OWNER.
+          </p>
+          <Field label="Họ và tên" required>
+            <input
+              value={owner.ownerFullName}
+              onChange={(e) => setOwner({ ...owner, ownerFullName: e.target.value })}
+              className={inputCls}
+              placeholder="Nguyễn Văn A"
+              required
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Email đăng nhập" required>
               <input
-                type="checkbox"
-                checked={withOwner}
-                onChange={(e) => setWithOwner(e.target.checked)}
-                className="rounded border-input"
+                value={owner.ownerEmail}
+                onChange={(e) => setOwner({ ...owner, ownerEmail: e.target.value })}
+                className={inputCls}
+                type="email"
+                placeholder="owner@business.vn"
+                required
               />
-              <span className="text-sm text-muted-foreground">Thêm</span>
-            </label>
+            </Field>
+            <Field label="Mật khẩu" required>
+              <input
+                value={owner.ownerPassword}
+                onChange={(e) => setOwner({ ...owner, ownerPassword: e.target.value })}
+                className={inputCls}
+                type="password"
+                placeholder="Tối thiểu 8 ký tự"
+                required
+                minLength={8}
+              />
+            </Field>
           </div>
-          {withOwner && (
-            <div className="space-y-4">
-              {field(
-                'Họ và tên',
-                input(owner.ownerFullName, (v) => setOwner({ ...owner, ownerFullName: v }), {
-                  placeholder: 'Nguyễn Văn A',
-                }),
-              )}
-              <div className="grid grid-cols-2 gap-4">
-                {field(
-                  'Email',
-                  input(owner.ownerEmail, (v) => setOwner({ ...owner, ownerEmail: v }), {
-                    type: 'email',
-                    placeholder: 'owner@business.vn',
-                  }),
-                )}
-                {field(
-                  'Mật khẩu',
-                  input(owner.ownerPassword, (v) => setOwner({ ...owner, ownerPassword: v }), {
-                    type: 'password',
-                    placeholder: 'Tối thiểu 8 ký tự',
-                  }),
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
         {error && (

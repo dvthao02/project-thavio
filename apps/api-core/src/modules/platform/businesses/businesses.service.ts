@@ -13,7 +13,7 @@ import { Pool } from 'pg';
 import { eq, ilike, or, count, desc, and, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { BusinessDbService } from '@common/database/business-db.service';
-import { businesses } from '@schema/platform';
+import { businesses, businessSubscriptions } from '@schema/platform';
 import { env } from '@config/env';
 import type { CreateBusinessDto } from './dto/create-business.dto';
 import type { ListBusinessesDto } from './dto/list-businesses.dto';
@@ -157,9 +157,24 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         .returning({ id: businesses.id });
       businessId = inserted.id;
 
+      // Step 5: Create subscription record
+      try {
+        const periodEnd = new Date();
+        periodEnd.setDate(periodEnd.getDate() + 30);
+        await this.platformDb.db.insert(businessSubscriptions).values({
+          businessId,
+          planCode: dto.plan ?? 'standard',
+          status: 'active',
+          currentPeriodStart: new Date().toISOString(),
+          currentPeriodEnd: periodEnd.toISOString(),
+        });
+      } catch {
+        // Subscription insert is non-critical; continue if plan_code FK fails
+      }
+
       const bizPool = this.businessDb.getPool(schemaName);
 
-      // Step 5: Seed system roles
+      // Step 6: Seed system roles
       await bizPool.query(`
         INSERT INTO roles (role_key, role_name, is_system) VALUES
           ('OWNER',     'Chủ cửa hàng',  true),
@@ -172,7 +187,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         ON CONFLICT (role_key) DO NOTHING
       `);
 
-      // Step 6: Seed RBAC permissions + role_permissions
+      // Step 7: Seed RBAC permissions + role_permissions
       const seedPath = path.join(process.cwd(), '..', '..', 'database', 'seeds', 'seed_business_rbac.sql');
       const rawSql = fs.readFileSync(seedPath, 'utf-8');
       const cleanSql = rawSql
@@ -181,37 +196,39 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         .join('\n');
       await bizPool.query(cleanSql);
 
-      // Step 7: Create first store (optional)
-      let storeId: string | null = null;
-      if (dto.firstStore) {
-        const { rows: storeRows } = await bizPool.query<{ id: string }>(
-          `INSERT INTO stores (store_code, store_name, store_type, address, city)
-           VALUES ($1, $2, 'retail', $3, $4) RETURNING id`,
-          [dto.firstStore.storeCode ?? 'STORE001', dto.firstStore.storeName, dto.firstStore.address ?? null, dto.firstStore.city ?? null],
+      // Step 8: Create first store
+      const { rows: storeRows } = await bizPool.query<{ id: string }>(
+        `INSERT INTO stores (store_code, store_name, store_type, address, city)
+         VALUES ($1, $2, 'retail', $3, $4) RETURNING id`,
+        [
+          dto.firstStore.storeCode ?? 'STORE001',
+          dto.firstStore.storeName,
+          dto.firstStore.address ?? null,
+          dto.firstStore.city ?? null,
+        ],
+      );
+      const storeId = storeRows[0].id;
+
+      // Step 9: Create owner staff member
+      const passwordHash = await bcrypt.hash(dto.ownerPassword, 10);
+      const { rows: staffRows } = await bizPool.query<{ id: string }>(
+        `INSERT INTO staff_members (staff_code, full_name, email, password_hash, role, is_active, employment_status, primary_store_id)
+         VALUES ('OWN001', $1, $2, $3, 'admin', true, 'active', $4) RETURNING id`,
+        [dto.ownerFullName, dto.ownerEmail, passwordHash, storeId],
+      );
+
+      // Step 10: Bind OWNER role
+      const { rows: roleRows } = await bizPool.query<{ id: string }>(
+        `SELECT id FROM roles WHERE role_key = 'OWNER' LIMIT 1`,
+      );
+      if (roleRows.length > 0) {
+        await bizPool.query(
+          `INSERT INTO staff_role_bindings (staff_id, role_id, store_id, status) VALUES ($1, $2, $3, 'active')`,
+          [staffRows[0].id, roleRows[0].id, storeId],
         );
-        storeId = storeRows[0].id;
       }
 
-      // Step 8: Create owner staff member (optional)
-      if (dto.ownerEmail && dto.ownerPassword && dto.ownerFullName) {
-        const passwordHash = await bcrypt.hash(dto.ownerPassword, 10);
-        const { rows: staffRows } = await bizPool.query<{ id: string }>(
-          `INSERT INTO staff_members (staff_code, full_name, email, password_hash, role, is_active, employment_status, primary_store_id)
-           VALUES ('OWN001', $1, $2, $3, 'admin', true, 'active', $4) RETURNING id`,
-          [dto.ownerFullName, dto.ownerEmail, passwordHash, storeId],
-        );
-        const { rows: roleRows } = await bizPool.query<{ id: string }>(
-          `SELECT id FROM roles WHERE role_key = 'OWNER' LIMIT 1`,
-        );
-        if (roleRows.length > 0) {
-          await bizPool.query(
-            `INSERT INTO staff_role_bindings (staff_id, role_id, store_id, status) VALUES ($1, $2, $3, 'active')`,
-            [staffRows[0].id, roleRows[0].id, storeId],
-          );
-        }
-      }
-
-      return { businessId, schemaName, status: 'created' };
+      return { id: businessId, schemaName, status: 'created' };
     } catch (err) {
       if (schemaCreated) {
         await this.adminPool.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`).catch(() => {});

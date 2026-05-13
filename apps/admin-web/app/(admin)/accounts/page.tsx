@@ -22,9 +22,10 @@ interface ListResponse {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
-  active:    { label: 'Hoạt động', cls: 'bg-success/10 text-success' },
-  suspended: { label: 'Tạm khóa', cls: 'bg-destructive/10 text-destructive' },
-  inactive:  { label: 'Ngừng HĐ', cls: 'bg-muted text-muted-foreground' },
+  pending:  { label: 'Chờ kích hoạt', cls: 'bg-warning/10 text-warning' },
+  active:   { label: 'Hoạt động',     cls: 'bg-success/10 text-success' },
+  locked:   { label: 'Đã khóa',       cls: 'bg-destructive/10 text-destructive' },
+  disabled: { label: 'Vô hiệu hóa',   cls: 'bg-muted text-muted-foreground' },
 };
 
 export default function AccountsPage() {
@@ -140,11 +141,26 @@ export default function AccountsPage() {
                     <td className="px-4 py-3.5">
                       {a.status === 'active' ? (
                         <button
-                          onClick={() => updateStatus.mutate({ id: a.id, status: 'suspended' })}
+                          onClick={() => updateStatus.mutate({ id: a.id, status: 'locked' })}
                           className="text-xs text-destructive hover:underline"
                         >
-                          Tạm khóa
+                          Khóa
                         </button>
+                      ) : a.status === 'locked' ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => updateStatus.mutate({ id: a.id, status: 'active' })}
+                            className="text-xs text-success hover:underline"
+                          >
+                            Kích hoạt
+                          </button>
+                          <button
+                            onClick={() => updateStatus.mutate({ id: a.id, status: 'disabled' })}
+                            className="text-xs text-muted-foreground hover:underline"
+                          >
+                            Vô hiệu
+                          </button>
+                        </div>
                       ) : (
                         <button
                           onClick={() => updateStatus.mutate({ id: a.id, status: 'active' })}

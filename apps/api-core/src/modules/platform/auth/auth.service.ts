@@ -34,6 +34,11 @@ export class AuthService {
     const valid = await bcrypt.compare(password, account.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
+    await this.platformDb.db
+      .update(accounts)
+      .set({ lastLoginAt: new Date().toISOString() })
+      .where(eq(accounts.id, account.id));
+
     const payload = {
       sub: account.id,
       email: account.email,

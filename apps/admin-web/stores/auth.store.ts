@@ -2,11 +2,10 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 interface PlatformUser {
-  sub: string;
-  email: string;
-  username: string;
-  role: string;
-  scope: string;
+  id: string;
+  email: string | null;
+  fullName: string | null;
+  isPlatformAdmin: boolean;
 }
 
 interface AuthState {

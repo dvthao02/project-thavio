@@ -13,15 +13,17 @@ export class DashboardService {
     const [
       [{ total: totalBusinesses }],
       [{ total: activeCount }],
-      [{ total: trialCount }],
+      [{ total: pendingCount }],
       [{ total: suspendedCount }],
+      [{ total: inactiveCount }],
       [{ total: totalAccounts }],
       recentBusinesses,
     ] = await Promise.all([
       db.select({ total: count() }).from(businesses),
       db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'active')),
-      db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'trial')),
+      db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'pending')),
       db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'suspended')),
+      db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'inactive')),
       db.select({ total: count() }).from(accounts),
       db
         .select({
@@ -42,8 +44,9 @@ export class DashboardService {
       businesses: {
         total: Number(totalBusinesses),
         active: Number(activeCount),
-        trial: Number(trialCount),
+        pending: Number(pendingCount),
         suspended: Number(suspendedCount),
+        inactive: Number(inactiveCount),
       },
       accounts: {
         total: Number(totalAccounts),

@@ -18,8 +18,9 @@ interface DashboardStats {
   businesses: {
     total: number;
     active: number;
-    trial: number;
+    pending: number;
     suspended: number;
+    inactive: number;
   };
   accounts: {
     total: number;
@@ -36,10 +37,10 @@ interface DashboardStats {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
-  active:   { label: 'Hoạt động',      cls: 'bg-success/10 text-success' },
-  trial:    { label: 'Dùng thử',       cls: 'bg-warning/10 text-warning' },
-  suspended:{ label: 'Tạm khóa',       cls: 'bg-destructive/10 text-destructive' },
-  inactive: { label: 'Ngừng HĐ',       cls: 'bg-muted text-muted-foreground' },
+  active:    { label: 'Hoạt động',     cls: 'bg-success/10 text-success' },
+  pending:   { label: 'Chờ duyệt',     cls: 'bg-warning/10 text-warning' },
+  suspended: { label: 'Tạm khóa',      cls: 'bg-destructive/10 text-destructive' },
+  inactive:  { label: 'Ngừng HĐ',      cls: 'bg-muted text-muted-foreground' },
 };
 
 const PLAN_CONFIG: Record<string, string> = {
@@ -141,12 +142,12 @@ export default function DashboardPage() {
           sub={total > 0 ? `${Math.round(((data?.businesses.active ?? 0) / total) * 100)}% tổng số` : undefined}
         />
         <StatCard
-          label="Tạm khóa"
-          value={isLoading ? '—' : (data?.businesses.suspended ?? 0)}
-          icon={XCircle}
-          color="text-destructive"
-          bg="bg-destructive/10"
-          sub={total > 0 ? `${Math.round(((data?.businesses.suspended ?? 0) / total) * 100)}% tổng số` : undefined}
+          label="Chờ duyệt"
+          value={isLoading ? '—' : (data?.businesses.pending ?? 0)}
+          icon={PauseCircle}
+          color="text-warning"
+          bg="bg-warning/10"
+          sub={total > 0 ? `${Math.round(((data?.businesses.pending ?? 0) / total) * 100)}% tổng số` : undefined}
         />
         <StatCard
           label="Tài khoản nền tảng"
@@ -172,8 +173,9 @@ export default function DashboardPage() {
             <div className="space-y-3">
               {[
                 { key: 'active',    label: 'Hoạt động', val: data?.businesses.active ?? 0,    dot: 'bg-success' },
-                { key: 'trial',     label: 'Dùng thử',  val: data?.businesses.trial ?? 0,     dot: 'bg-warning' },
+                { key: 'pending',   label: 'Chờ duyệt', val: data?.businesses.pending ?? 0,   dot: 'bg-warning' },
                 { key: 'suspended', label: 'Tạm khóa',  val: data?.businesses.suspended ?? 0, dot: 'bg-destructive' },
+                { key: 'inactive',  label: 'Ngừng HĐ',  val: data?.businesses.inactive ?? 0,  dot: 'bg-muted-foreground' },
               ].map(({ key, label, val, dot }) => (
                 <div key={key} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
