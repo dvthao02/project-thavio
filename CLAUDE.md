@@ -123,14 +123,12 @@ await bcrypt.compare(password, account.passwordHash)
 | `payment_status` | `'unpaid'` `'partial_paid'` `'paid'` `'overpaid'` `'debt'` `'refunded'` `'partial_refunded'` `'voided'` |
 | `kitchen_status` | `'pending'` `'sent'` `'cooking'` `'ready'` `'served'` `'cancelled'` |
 
-### 3.4 Provision business mới — dùng đúng function
-```sql
--- ✅ ĐÚNG
-SELECT * FROM platform.fn_provision_business('business_code', 'Legal Name', ...)
+### 3.4 Provision business mới — xử lý ở API layer
 
--- ❌ SAI — đã deprecated
-SELECT * FROM platform.fn_provision_tenant(...)
-```
+`fn_provision_business` và `fn_provision_tenant` đều **không tồn tại** trong DB.
+`platform.fn_register_business()` tồn tại nhưng là stub rỗng (chỉ RAISE NOTICE).
+
+Provisioning thực sự được thực hiện hoàn toàn ở API layer — không gọi SQL function trực tiếp.
 
 ### 3.5 search_path — set ở Pool options, KHÔNG dùng pool.on('connect')
 ```typescript
@@ -389,7 +387,7 @@ productId: 51ce0062-9d99-4315-afa6-e5e34ebfc9e0
 - **KHÔNG** dùng `class-validator` / `@IsString()` — dùng Zod
 - **KHÔNG** tạo file `.md` khi không được yêu cầu
 - **KHÔNG** import relative xuyên module — dùng `@common/`, `@schema/`, `@modules/`
-- **KHÔNG** gọi `fn_provision_tenant` — dùng `fn_provision_business`
+- **KHÔNG** gọi `fn_provision_business` hay `fn_provision_tenant` — cả hai không tồn tại; provisioning do API layer xử lý
 - **KHÔNG** chạy `nest start` trực tiếp — dùng `node node_modules/@nestjs/cli/bin/nest.js start --watch`
 - **KHÔNG** dùng `pool.on('connect')` để set search_path — dùng `options: '-c search_path=...'`
 - **KHÔNG** hardcode `'dine_in'` hay `'retail'` làm `order_type`
