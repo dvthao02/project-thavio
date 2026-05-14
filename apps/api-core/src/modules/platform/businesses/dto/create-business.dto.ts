@@ -14,9 +14,14 @@ export const CreateBusinessSchema = z.object({
     address: z.string().optional(),
     city: z.string().optional(),
   }),
-  ownerEmail: z.string().email(),
+  ownerEmail: z.string().email().optional(),
+  ownerPhone: z.string().optional(),
+  ownerStaffCode: z.string().optional(),
   ownerPassword: z.string().min(8),
   ownerFullName: z.string().min(1),
+}).refine((d) => d.ownerEmail || d.ownerPhone, {
+  message: 'ownerEmail hoặc ownerPhone là bắt buộc',
+  path: ['ownerEmail'],
 });
 
 export type CreateBusinessDto = z.infer<typeof CreateBusinessSchema>;

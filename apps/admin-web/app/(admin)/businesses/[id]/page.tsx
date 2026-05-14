@@ -5,9 +5,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  AlertTriangle, Building2, CheckCircle2, ChevronLeft, Clock3,
-  Edit2, Lock, LockOpen, MapPin, Phone, Plus, Search,
-  Store, Trash2, User, UserCheck, X,
+  AlertTriangle, Building2, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3,
+  Edit2, Eye, EyeOff, Lock, LockOpen, Mail, MapPin, Phone, Plus, Search,
+  Store, Trash2, User, UserCheck, Users, X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
@@ -77,6 +77,22 @@ interface AccountOption {
   isPlatformAdmin: boolean;
 }
 
+interface StaffMember {
+  id: string;
+  staffCode: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  role: string;
+  isActive: boolean;
+  employmentStatus: string;
+  primaryStoreId: string | null;
+  storeName: string | null;
+  storeCode: string | null;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
 // ── Config ──────────────────────────────────────────────────────────────────────
 
 const STATUS_CFG: Record<string, { label: string; cls: string }> = {
@@ -115,6 +131,29 @@ const ACCESS_LEVEL_CLS: Record<string, string> = {
   admin:   'bg-primary/10 text-primary',
   support: 'bg-cyan-500/10 text-cyan-700',
   viewer:  'bg-slate-500/10 text-slate-600',
+};
+
+const STAFF_ROLE_LABEL: Record<string, string> = {
+  admin:     'Quản trị viên',
+  cashier:   'Thu ngân',
+  inventory: 'Thủ kho',
+  kitchen:   'Bếp / Pha chế',
+  delivery:  'Giao hàng',
+  staff:     'Nhân viên',
+};
+
+const STAFF_ROLES = [
+  { value: 'admin',     label: 'Quản trị viên' },
+  { value: 'cashier',   label: 'Thu ngân' },
+  { value: 'inventory', label: 'Thủ kho' },
+  { value: 'kitchen',   label: 'Bếp / Pha chế' },
+  { value: 'delivery',  label: 'Giao hàng' },
+  { value: 'staff',     label: 'Nhân viên' },
+];
+
+const DEFAULT_STAFF_FORM = {
+  fullName: '', email: '', phone: '', staffCode: '',
+  role: 'cashier', password: '', confirmPassword: '',
 };
 
 // ── Hooks ──────────────────────────────────────────────────────────────────────
@@ -166,6 +205,10 @@ export default function BusinessDetailPage() {
   const [suspendConfirm, setSuspendConfirm] = useState<'suspend' | 'activate' | null>(null);
   const [addAssigneeOpen, setAddAssigneeOpen] = useState(false);
   const [assigneeSearch, setAssigneeSearch] = useState('');
+  const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set());
+  const [addStaffStoreId, setAddStaffStoreId] = useState<string | null>(null);
+  const [staffForm, setStaffForm] = useState(DEFAULT_STAFF_FORM);
+  const [showStaffPwd, setShowStaffPwd] = useState(false);
 
   const [editForm, setEditForm] = useState({
     legalName: '', brandName: '', email: '', phone: '',
@@ -175,6 +218,7 @@ export default function BusinessDetailPage() {
   useEscape(editOpen, () => setEditOpen(false));
   useEscape(suspendConfirm !== null, () => setSuspendConfirm(null));
   useEscape(addAssigneeOpen, () => { setAddAssigneeOpen(false); setAssigneeSearch(''); });
+  useEscape(addStaffStoreId !== null, () => { setAddStaffStoreId(null); setStaffForm(DEFAULT_STAFF_FORM); });
 
   // ── Queries ──
 
@@ -186,6 +230,12 @@ export default function BusinessDetailPage() {
   const { data: storesData } = useQuery<{ data: StoreItem[] }>({
     queryKey: ['business-stores', id],
     queryFn: () => api.get(`/platform/businesses/${id}/stores`).then((r) => r.data),
+    enabled: tab === 'stores',
+  });
+
+  const { data: staffData } = useQuery<{ data: StaffMember[] }>({
+    queryKey: ['business-staff', id],
+    queryFn: () => api.get(`/platform/businesses/${id}/staff`).then((r) => r.data),
     enabled: tab === 'stores',
   });
 
@@ -239,6 +289,17 @@ export default function BusinessDetailPage() {
     mutationFn: (accountId: string) =>
       api.delete(`/platform/businesses/${id}/assignees/${accountId}`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business-assignees', id] }),
+  });
+
+  const createStaffMut = useMutation({
+    mutationFn: (body: object) =>
+      api.post(`/platform/businesses/${id}/staff`, body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['business-staff', id] });
+      qc.invalidateQueries({ queryKey: ['business-stores', id] });
+      setAddStaffStoreId(null);
+      setStaffForm(DEFAULT_STAFF_FORM);
+    },
   });
 
   // ── Derived ──
@@ -409,69 +470,138 @@ export default function BusinessDetailPage() {
 
       {/* Tab: Cửa hàng */}
       {tab === 'stores' && (
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border px-5 py-3">
-            <h3 className="text-sm font-semibold text-foreground">
-              Cửa hàng{storesData ? ` (${storesData.data.length})` : ''}
-            </h3>
-          </div>
+        <div className="space-y-3">
           {!storesData ? (
-            <div className="px-5 py-10 text-center text-sm text-muted-foreground">Đang tải…</div>
+            <div className="rounded-lg border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">Đang tải…</div>
           ) : storesData.data.length === 0 ? (
-            <div className="px-5 py-12 text-center">
+            <div className="rounded-lg border border-border bg-card px-5 py-12 text-center">
               <Store size={32} className="mx-auto mb-2 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">Chưa có cửa hàng nào</p>
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/40">
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Cửa hàng</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Mã</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Loại</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Địa chỉ</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Nhân viên</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Trạng thái</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {storesData.data.map((s) => (
-                  <tr key={s.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-bold text-muted-foreground">
-                          <Store size={14} />
-                        </div>
+            storesData.data.map((s) => {
+              const storeStaff = (staffData?.data ?? []).filter((m) => m.primaryStoreId === s.id);
+              const expanded = expandedStores.has(s.id);
+              return (
+                <div key={s.id} className="rounded-lg border border-border bg-card overflow-hidden">
+                  {/* Store header row */}
+                  <div
+                    className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-muted/20 transition-colors"
+                    onClick={() => setExpandedStores((prev) => {
+                      const next = new Set(prev);
+                      next.has(s.id) ? next.delete(s.id) : next.add(s.id);
+                      return next;
+                    })}
+                  >
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                      <Store size={16} className="text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium text-foreground">{s.storeName}</p>
+                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{s.storeCode}</code>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          s.isActive ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
+                        }`}>{s.isActive ? 'Hoạt động' : 'Ngừng'}</span>
                       </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{s.storeCode}</code>
-                    </td>
-                    <td className="px-4 py-3.5 text-xs text-muted-foreground capitalize">{s.storeType}</td>
-                    <td className="px-4 py-3.5 text-xs text-muted-foreground">
-                      {s.city || s.address ? (
-                        <span className="inline-flex items-center gap-1">
-                          <MapPin size={12} /> {[s.city, s.address].filter(Boolean).join(', ')}
-                        </span>
-                      ) : '—'}
-                    </td>
-                    <td className="px-4 py-3.5 text-xs text-muted-foreground">
-                      <span className="inline-flex items-center gap-1">
-                        <User size={12} /> {s.staffCount} nhân viên
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        s.isActive ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
-                      }`}>
-                        {s.isActive ? 'Hoạt động' : 'Ngừng'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                        {(s.city || s.address) && (
+                          <span className="flex items-center gap-1"><MapPin size={11} />{[s.city, s.address].filter(Boolean).join(', ')}</span>
+                        )}
+                        <span className="flex items-center gap-1"><Users size={11} />{storeStaff.length} nhân viên</span>
+                        <span className="capitalize text-muted-foreground/70">{s.storeType}</span>
+                      </div>
+                    </div>
+                    {canUpdate && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setAddStaffStoreId(s.id); setStaffForm({ ...DEFAULT_STAFF_FORM }); }}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition shrink-0"
+                      >
+                        <Plus size={12} /> Thêm nhân viên
+                      </button>
+                    )}
+                    <div className="text-muted-foreground shrink-0 ml-1">
+                      {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    </div>
+                  </div>
+
+                  {/* Staff list (expanded) */}
+                  {expanded && (
+                    <div className="border-t border-border">
+                      {storeStaff.length === 0 ? (
+                        <div className="px-5 py-6 text-center">
+                          <Users size={24} className="mx-auto mb-2 text-muted-foreground/30" />
+                          <p className="text-xs text-muted-foreground">Chưa có nhân viên trong cửa hàng này</p>
+                        </div>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-muted/30">
+                              <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Nhân viên</th>
+                              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Mã NV</th>
+                              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Đăng nhập bằng</th>
+                              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Chức vụ</th>
+                              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Đăng nhập cuối</th>
+                              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Trạng thái</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {storeStaff.map((m) => (
+                              <tr key={m.id} className="hover:bg-muted/10 transition-colors">
+                                <td className="px-5 py-3">
+                                  <div className="flex items-center gap-2.5">
+                                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                                      {m.fullName.split(' ').slice(-1)[0]?.[0]?.toUpperCase() ?? '?'}
+                                    </div>
+                                    <span className="font-medium text-foreground text-xs">{m.fullName}</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{m.staffCode}</code>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex flex-col gap-0.5">
+                                    {m.phone && (
+                                      <span className="inline-flex items-center gap-1 text-xs text-foreground">
+                                        <Phone size={11} className="text-emerald-600" />{m.phone}
+                                      </span>
+                                    )}
+                                    {m.email && (
+                                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                        <Mail size={11} />{m.email}
+                                      </span>
+                                    )}
+                                    {!m.phone && !m.email && (
+                                      <span className="text-xs text-muted-foreground/60">Chỉ mã NV</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="text-xs text-muted-foreground">
+                                    {STAFF_ROLE_LABEL[m.role] ?? m.role}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-muted-foreground">
+                                  {m.lastLoginAt
+                                    ? new Date(m.lastLoginAt).toLocaleString('vi-VN')
+                                    : <span className="text-muted-foreground/50">Chưa đăng nhập</span>}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                    m.isActive ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
+                                  }`}>{m.isActive ? 'Hoạt động' : 'Ngừng'}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       )}
@@ -749,6 +879,107 @@ export default function BusinessDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Modal: Add Staff */}
+      {addStaffStoreId !== null && canUpdate && (() => {
+        const targetStore = storesData?.data.find((s) => s.id === addStaffStoreId);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground">Thêm nhân viên</h3>
+                  {targetStore && <p className="text-xs text-muted-foreground mt-0.5">{targetStore.storeName}</p>}
+                </div>
+                <button onClick={() => { setAddStaffStoreId(null); setStaffForm(DEFAULT_STAFF_FORM); }}
+                  className="text-muted-foreground hover:text-foreground"><X size={18} /></button>
+              </div>
+
+              <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+                <Field label="Họ và tên *">
+                  <input className={INPUT} value={staffForm.fullName} autoFocus
+                    onChange={(e) => setStaffForm((f) => ({ ...f, fullName: e.target.value }))}
+                    placeholder="Nguyễn Văn A" />
+                </Field>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Số điện thoại (đăng nhập)">
+                    <input className={INPUT} value={staffForm.phone}
+                      onChange={(e) => setStaffForm((f) => ({ ...f, phone: e.target.value }))}
+                      placeholder="0901234567" />
+                  </Field>
+                  <Field label="Email (đăng nhập)">
+                    <input type="email" className={INPUT} value={staffForm.email}
+                      onChange={(e) => setStaffForm((f) => ({ ...f, email: e.target.value }))}
+                      placeholder="nv@business.vn" />
+                  </Field>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Mã nhân viên" >
+                    <input className={INPUT} value={staffForm.staffCode}
+                      onChange={(e) => setStaffForm((f) => ({ ...f, staffCode: e.target.value }))}
+                      placeholder="Tự động nếu để trống" />
+                  </Field>
+                  <Field label="Chức vụ *">
+                    <select className={INPUT} value={staffForm.role}
+                      onChange={(e) => setStaffForm((f) => ({ ...f, role: e.target.value }))}>
+                      {STAFF_ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                    </select>
+                  </Field>
+                </div>
+
+                <Field label="Mật khẩu *">
+                  <div className="relative">
+                    <input
+                      type={showStaffPwd ? 'text' : 'password'}
+                      className={INPUT + ' pr-9'} value={staffForm.password}
+                      onChange={(e) => setStaffForm((f) => ({ ...f, password: e.target.value }))}
+                      placeholder="≥ 8 ký tự" />
+                    <button type="button" onClick={() => setShowStaffPwd((v) => !v)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                      {showStaffPwd ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </Field>
+
+                <div className="rounded-md bg-sky-500/5 border border-sky-200 px-3 py-2 text-xs text-sky-700">
+                  Nhân viên đăng nhập bằng: <strong>SĐT</strong>, <strong>email</strong>, hoặc <strong>mã NV</strong> + mật khẩu
+                </div>
+              </div>
+
+              {createStaffMut.isError && (
+                <p className="mt-3 text-xs text-destructive">
+                  {(createStaffMut.error as any)?.response?.data?.message ?? 'Lỗi khi thêm nhân viên.'}
+                </p>
+              )}
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button onClick={() => { setAddStaffStoreId(null); setStaffForm(DEFAULT_STAFF_FORM); }}
+                  className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition">Hủy</button>
+                <button
+                  onClick={() => {
+                    if (!staffForm.fullName || !staffForm.password) return;
+                    createStaffMut.mutate({
+                      fullName: staffForm.fullName,
+                      ...(staffForm.email && { email: staffForm.email }),
+                      ...(staffForm.phone && { phone: staffForm.phone }),
+                      ...(staffForm.staffCode && { staffCode: staffForm.staffCode }),
+                      role: staffForm.role,
+                      password: staffForm.password,
+                      primaryStoreId: addStaffStoreId,
+                    });
+                  }}
+                  disabled={createStaffMut.isPending || !staffForm.fullName || !staffForm.password}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
+                >
+                  {createStaffMut.isPending ? 'Đang thêm...' : 'Thêm nhân viên'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal: Add Assignee */}
       {addAssigneeOpen && canUpdate && (

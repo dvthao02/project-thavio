@@ -21,6 +21,7 @@ import type { ListBusinessesDto } from './dto/list-businesses.dto';
 import type { UpdateStatusDto } from './dto/update-status.dto';
 import type { UpdateBusinessDto } from './dto/update-business.dto';
 import type { AddAssigneeDto } from './dto/manage-assignee.dto';
+import type { CreateStaffDto } from './dto/create-staff.dto';
 
 const TRIAL_DAYS = 10;
 
@@ -559,10 +560,11 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
 
       // Step 9: Create owner staff member
       const passwordHash = await bcrypt.hash(dto.ownerPassword, 10);
+      const ownerCode = dto.ownerStaffCode ?? 'OWN001';
       const { rows: staffRows } = await bizPool.query<{ id: string }>(
-        `INSERT INTO staff_members (staff_code, full_name, email, password_hash, role, is_active, employment_status, primary_store_id)
-         VALUES ('OWN001', $1, $2, $3, 'admin', true, 'active', $4) RETURNING id`,
-        [dto.ownerFullName, dto.ownerEmail, passwordHash, storeId],
+        `INSERT INTO staff_members (staff_code, full_name, email, phone, password_hash, role, is_active, employment_status, primary_store_id)
+         VALUES ($1, $2, $3, $4, $5, 'admin', true, 'active', $6) RETURNING id`,
+        [ownerCode, dto.ownerFullName, dto.ownerEmail ?? null, dto.ownerPhone ?? null, passwordHash, storeId],
       );
 
       // Step 10: Bind OWNER role
@@ -587,6 +589,100 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       }
       throw err;
     }
+  }
+
+  async getStaff(businessId: string, storeId?: string) {
+    const [biz] = await this.platformDb.db
+      .select({ schemaName: businesses.schemaName })
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1);
+    if (!biz) throw new NotFoundException('Business not found');
+    if (!biz.schemaName) return { data: [] };
+
+    try {
+      const params: unknown[] = [];
+      let where = '';
+      if (storeId) {
+        params.push(storeId);
+        where = `WHERE sm.primary_store_id = $1::uuid`;
+      }
+      const { rows } = await this.adminPool.query(
+        `SELECT sm.id::text, sm.staff_code AS "staffCode", sm.full_name AS "fullName",
+                sm.email, sm.phone, sm.role, sm.is_active AS "isActive",
+                sm.employment_status AS "employmentStatus",
+                sm.primary_store_id::text AS "primaryStoreId",
+                sm.last_login_at AS "lastLoginAt", sm.created_at AS "createdAt",
+                s.store_name AS "storeName", s.store_code AS "storeCode"
+         FROM "${biz.schemaName}".staff_members sm
+         LEFT JOIN "${biz.schemaName}".stores s ON s.id = sm.primary_store_id
+         ${where}
+         ORDER BY sm.created_at`,
+        params,
+      );
+      return { data: rows };
+    } catch {
+      return { data: [] };
+    }
+  }
+
+  async createStaff(businessId: string, dto: CreateStaffDto) {
+    const [biz] = await this.platformDb.db
+      .select({ schemaName: businesses.schemaName })
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1);
+    if (!biz) throw new NotFoundException('Business not found');
+    if (!biz.schemaName) throw new BadRequestException('Business schema not ready');
+
+    const bizPool = this.businessDb.getPool(biz.schemaName);
+
+    // Auto-generate staffCode if not provided
+    let staffCode = dto.staffCode;
+    if (!staffCode) {
+      const { rows: countRows } = await bizPool.query<{ cnt: string }>(
+        `SELECT COUNT(*)::text AS cnt FROM staff_members`,
+      );
+      const n = parseInt(countRows[0]?.cnt ?? '0', 10) + 1;
+      staffCode = `STAFF${String(n).padStart(3, '0')}`;
+    }
+
+    // Check storeId exists
+    const { rows: storeRows } = await bizPool.query<{ id: string }>(
+      `SELECT id FROM stores WHERE id = $1 LIMIT 1`,
+      [dto.primaryStoreId],
+    );
+    if (storeRows.length === 0) throw new NotFoundException('Store not found');
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const { rows } = await bizPool.query<{ id: string }>(
+      `INSERT INTO staff_members
+         (staff_code, full_name, email, phone, password_hash, role, is_active, employment_status, primary_store_id)
+       VALUES ($1, $2, $3, $4, $5, $6, true, 'active', $7)
+       RETURNING id::text`,
+      [staffCode, dto.fullName, dto.email ?? null, dto.phone ?? null, passwordHash, dto.role, dto.primaryStoreId],
+    );
+    const staffId = rows[0].id;
+
+    // Bind to matching system role
+    const roleKeyMap: Record<string, string> = {
+      admin: 'ADMIN', cashier: 'CASHIER', inventory: 'INVENTORY',
+      kitchen: 'KITCHEN', delivery: 'DELIVERY', staff: 'STAFF',
+    };
+    const roleKey = roleKeyMap[dto.role] ?? 'STAFF';
+    const { rows: roleRows } = await bizPool.query<{ id: string }>(
+      `SELECT id FROM roles WHERE role_key = $1 LIMIT 1`,
+      [roleKey],
+    );
+    if (roleRows.length > 0) {
+      await bizPool.query(
+        `INSERT INTO staff_role_bindings (staff_id, role_id, store_id, status) VALUES ($1, $2, $3, 'active')
+         ON CONFLICT DO NOTHING`,
+        [staffId, roleRows[0].id, dto.primaryStoreId],
+      );
+    }
+
+    return { id: staffId, staffCode };
   }
 
   async updateStatus(id: string, dto: UpdateStatusDto, actorId?: string) {

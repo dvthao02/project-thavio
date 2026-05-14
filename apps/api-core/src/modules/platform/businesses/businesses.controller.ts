@@ -6,6 +6,7 @@ import { ListBusinessesSchema } from './dto/list-businesses.dto';
 import { UpdateStatusSchema } from './dto/update-status.dto';
 import { UpdateBusinessSchema } from './dto/update-business.dto';
 import { AddAssigneeSchema } from './dto/manage-assignee.dto';
+import { CreateStaffSchema } from './dto/create-staff.dto';
 import { RequirePermission } from '@decorators/require-permission.decorator';
 
 @Controller('platform/businesses')
@@ -75,5 +76,18 @@ export class BusinessesController {
   @Delete(':id/assignees/:accountId')
   removeAssignee(@Param('id') id: string, @Param('accountId') accountId: string) {
     return this.businessesService.removeAssignee(id, accountId);
+  }
+
+  @RequirePermission('platform.business.view')
+  @Get(':id/staff')
+  getStaff(@Param('id') id: string, @Query('storeId') storeId?: string) {
+    return this.businessesService.getStaff(id, storeId);
+  }
+
+  @RequirePermission('platform.business.update')
+  @Post(':id/staff')
+  createStaff(@Param('id') id: string, @Body() body: unknown) {
+    const dto = CreateStaffSchema.parse(body);
+    return this.businessesService.createStaff(id, dto);
   }
 }
