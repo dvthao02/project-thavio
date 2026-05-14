@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import {
   AlertTriangle,
   Building2,
@@ -13,7 +13,6 @@ import {
   LayoutDashboard,
   LifeBuoy,
   LockKeyhole,
-  LogOut,
   Menu,
   Monitor,
   Package,
@@ -29,7 +28,6 @@ import {
   Webhook,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAuthStore } from '@/stores/auth.store';
 
 const NAV_GROUPS = [
   {
@@ -86,17 +84,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { user, clearAuth } = useAuthStore();
-
-  // Track only manual collapses. Active group is always shown regardless.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-
-  function logout() {
-    clearAuth();
-    document.cookie = 'admin_token=; path=/; max-age=0';
-    router.push('/login');
-  }
 
   function toggleGroup(label: string) {
     if (collapsed) return;
@@ -107,16 +95,21 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <aside
       className={cn(
         'shrink-0 h-screen flex flex-col bg-sidebar border-r border-sidebar-border transition-all duration-200',
-        collapsed ? 'w-16' : 'w-72',
+        collapsed ? 'w-16' : 'w-64',
       )}
     >
-      <div className={cn('h-[72px] flex items-center border-b border-sidebar-border', collapsed ? 'justify-center px-2' : 'justify-between px-5')}>
+      <div
+        className={cn(
+          'h-14 flex items-center border-b border-sidebar-border',
+          collapsed ? 'justify-center px-2' : 'justify-between px-4',
+        )}
+      >
         {!collapsed && (
           <div className="flex items-center gap-3 min-w-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-icon.png" alt="Thavio" className="w-14 h-auto object-contain shrink-0" />
+            <img src="/logo-icon.png" alt="Thavio" className="w-12 h-auto object-contain shrink-0" />
             <div className="min-w-0">
-              <p className="text-xl font-bold leading-none tracking-wide text-foreground">THAVIO</p>
+              <p className="text-lg font-bold leading-none tracking-wide text-foreground">THAVIO</p>
               <p className="text-[11px] text-muted-foreground mt-1">Platform Admin</p>
             </div>
           </div>
@@ -134,9 +127,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       <nav className={cn('flex-1 overflow-y-auto py-4', collapsed ? 'px-2 space-y-2' : 'px-3 space-y-4')}>
         {NAV_GROUPS.map((group) => {
-          const groupActive = group.items.some((item) => pathname === item.href || pathname.startsWith(item.href + '/'));
-          // Always open if active (so navigating to a collapsed group's child auto-expands it)
-          const groupOpen = collapsed ? true : ((openGroups[group.label] ?? true) || groupActive);
+          const groupActive = group.items.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+          const groupOpen = collapsed ? true : (openGroups[group.label] ?? true) || groupActive;
 
           return (
             <div key={group.label}>
@@ -157,7 +149,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               {groupOpen && (
                 <div className={cn('space-y-0.5', collapsed ? '' : 'mt-1')}>
                   {group.items.map(({ href, label, icon: Icon }) => {
-                    const active = pathname === href || pathname.startsWith(href + '/');
+                    const active = pathname === href || pathname.startsWith(`${href}/`);
                     return (
                       <Link
                         key={href}
@@ -182,33 +174,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           );
         })}
       </nav>
-
-      <div className="p-3 border-t border-sidebar-border">
-        {!collapsed && (
-          <div className="flex items-center gap-3 px-3 py-2 mb-1">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold uppercase">
-              {(user?.fullName ?? user?.email ?? 'AD').slice(0, 2)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-foreground truncate">{user?.fullName ?? user?.email ?? 'Admin'}</p>
-              <p className="text-xs text-muted-foreground truncate">
-                {user?.isPlatformAdmin ? 'Platform Admin' : 'Quản trị viên'}
-              </p>
-            </div>
-          </div>
-        )}
-        <button
-          onClick={logout}
-          title={collapsed ? 'Đăng xuất' : undefined}
-          className={cn(
-            'flex items-center rounded-md text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors',
-            collapsed ? 'justify-center w-10 h-10 mx-auto' : 'gap-3 w-full px-3 py-2',
-          )}
-        >
-          <LogOut size={16} />
-          {!collapsed && <span>Đăng xuất</span>}
-        </button>
-      </div>
     </aside>
   );
 }

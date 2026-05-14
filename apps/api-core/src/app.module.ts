@@ -12,6 +12,7 @@ import { AccountsModule } from '@modules/platform/accounts/accounts.module';
 import { DashboardModule } from '@modules/platform/dashboard/dashboard.module';
 import { AuditLogsModule } from '@modules/platform/audit-logs/audit-logs.module';
 import { AlertsModule } from '@modules/platform/alerts/alerts.module';
+import { SubscriptionModule } from '@modules/business/subscription/subscription.module';
 import { env } from '@config/env';
 
 @Module({
@@ -24,6 +25,7 @@ import { env } from '@config/env';
     DashboardModule,
     AuditLogsModule,
     AlertsModule,
+    SubscriptionModule,
   ],
   providers: [
     PlatformMiddleware,
