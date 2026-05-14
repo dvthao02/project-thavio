@@ -1,67 +1,267 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, Building2, CheckCircle } from 'lucide-react';
+import {
+  AlertTriangle, Building2, CheckCircle2, ChevronLeft, Clock3,
+  Edit2, Lock, LockOpen, MapPin, Phone, Plus, Search,
+  Store, Trash2, User, UserCheck, X,
+} from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuthStore } from '@/stores/auth.store';
 
-interface Business {
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+interface BusinessDetail {
   id: string;
   businessCode: string;
+  schemaName: string | null;
   legalName: string;
   brandName: string | null;
-  email: string | null;
-  phone: string | null;
   status: string;
   subscriptionPlan: string;
-  schemaName: string | null;
+  subscriptionStatus: string;
+  email: string | null;
+  phone: string | null;
+  taxCode: string | null;
+  currencyCode: string | null;
   timezoneName: string | null;
+  note: string | null;
+  subscriptionExpiresAt: string | null;
+  trialStartedAt: string | null;
+  trialEndsAt: string | null;
+  trialDaysLeft: number | null;
+  subscription: {
+    planCode: string | null;
+    status: string | null;
+    periodStart: string | null;
+    periodEnd: string | null;
+    renewedAt: string | null;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface StoreItem {
+  id: string;
+  storeCode: string;
+  storeName: string;
+  storeType: string;
+  phone: string | null;
+  address: string | null;
+  city: string | null;
+  isActive: boolean;
+  staffCount: number;
   createdAt: string;
 }
 
-const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
-  active:    { label: 'Hoạt động', cls: 'bg-success/10 text-success' },
-  pending:   { label: 'Chờ duyệt', cls: 'bg-warning/10 text-warning' },
-  suspended: { label: 'Tạm khóa',  cls: 'bg-destructive/10 text-destructive' },
-  inactive:  { label: 'Ngừng HĐ',  cls: 'bg-muted text-muted-foreground' },
+interface Assignee {
+  id: string;
+  accountId: string;
+  fullName: string | null;
+  email: string | null;
+  username: string;
+  isPlatformAdmin: boolean;
+  accessLevel: string;
+  status: string;
+  createdAt: string;
+}
+
+interface AccountOption {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  username: string;
+  isPlatformAdmin: boolean;
+}
+
+// ── Config ──────────────────────────────────────────────────────────────────────
+
+const STATUS_CFG: Record<string, { label: string; cls: string }> = {
+  active:    { label: 'Hoạt động',       cls: 'bg-emerald-500/10 text-emerald-700' },
+  pending:   { label: 'Chờ khởi tạo',   cls: 'bg-amber-500/10 text-amber-700' },
+  suspended: { label: 'Tạm khóa',       cls: 'bg-red-500/10 text-red-700' },
+  inactive:  { label: 'Ngừng hoạt động',cls: 'bg-slate-500/10 text-slate-600' },
+  closed:    { label: 'Đã đóng',        cls: 'bg-slate-500/10 text-slate-600' },
 };
 
-const STATUSES = [
-  { key: 'active',    label: 'Hoạt động' },
-  { key: 'pending',   label: 'Chờ duyệt' },
-  { key: 'suspended', label: 'Tạm khóa' },
-  { key: 'inactive',  label: 'Ngừng HĐ' },
-];
+const SUB_STATUS_CFG: Record<string, { label: string; cls: string }> = {
+  trialing:  { label: 'Dùng thử',   cls: 'bg-sky-500/10 text-sky-700' },
+  active:    { label: 'Đang dùng',  cls: 'bg-emerald-500/10 text-emerald-700' },
+  past_due:  { label: 'Quá hạn',   cls: 'bg-red-500/10 text-red-700' },
+  cancelled: { label: 'Đã hủy',    cls: 'bg-slate-500/10 text-slate-600' },
+  suspended: { label: 'Tạm khóa', cls: 'bg-red-500/10 text-red-700' },
+  pending:   { label: 'Chờ xử lý', cls: 'bg-amber-500/10 text-amber-700' },
+};
 
-function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+const PLAN_CLS: Record<string, string> = {
+  starter:      'bg-slate-500/10 text-slate-600',
+  standard:     'bg-primary/10 text-primary',
+  professional: 'bg-cyan-500/10 text-cyan-700',
+  enterprise:   'bg-slate-900 text-white',
+};
+
+const ACCESS_LEVEL_LABEL: Record<string, string> = {
+  owner:   'Chủ sở hữu',
+  admin:   'Quản trị',
+  support: 'Hỗ trợ',
+  viewer:  'Xem',
+};
+
+const ACCESS_LEVEL_CLS: Record<string, string> = {
+  owner:   'bg-amber-500/10 text-amber-700',
+  admin:   'bg-primary/10 text-primary',
+  support: 'bg-cyan-500/10 text-cyan-700',
+  viewer:  'bg-slate-500/10 text-slate-600',
+};
+
+// ── Hooks ──────────────────────────────────────────────────────────────────────
+
+function useEscape(active: boolean, handler: () => void) {
+  useEffect(() => {
+    if (!active) return;
+    const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') handler(); };
+    document.addEventListener('keydown', fn);
+    return () => document.removeEventListener('keydown', fn);
+  }, [active, handler]);
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+const INPUT = 'w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30';
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start py-3 border-b border-border last:border-0">
-      <p className="w-40 shrink-0 text-xs font-medium text-muted-foreground pt-0.5">{label}</p>
-      <div className="text-sm text-foreground">{value ?? '—'}</div>
+    <div className="space-y-1.5">
+      <label className="block text-xs font-medium text-muted-foreground">{label}</label>
+      {children}
     </div>
   );
 }
+
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-4 py-3 border-b border-border last:border-0">
+      <p className="w-36 shrink-0 text-xs font-medium text-muted-foreground pt-0.5">{label}</p>
+      <div className="text-sm text-foreground">{value ?? <span className="text-muted-foreground/60">—</span>}</div>
+    </div>
+  );
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function BusinessDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
+  const { permissions } = useAuthStore();
 
-  const { data: business, isLoading } = useQuery<Business>({
+  const canUpdate = permissions.includes('platform.business.update');
+  const canViewAssignees = permissions.includes('platform.business.view');
+
+  const [tab, setTab] = useState<'info' | 'stores' | 'subscription' | 'assignees'>('info');
+  const [editOpen, setEditOpen] = useState(false);
+  const [suspendConfirm, setSuspendConfirm] = useState<'suspend' | 'activate' | null>(null);
+  const [addAssigneeOpen, setAddAssigneeOpen] = useState(false);
+  const [assigneeSearch, setAssigneeSearch] = useState('');
+
+  const [editForm, setEditForm] = useState({
+    legalName: '', brandName: '', email: '', phone: '',
+    taxCode: '', currencyCode: '', timezoneName: '', note: '',
+  });
+
+  useEscape(editOpen, () => setEditOpen(false));
+  useEscape(suspendConfirm !== null, () => setSuspendConfirm(null));
+  useEscape(addAssigneeOpen, () => { setAddAssigneeOpen(false); setAssigneeSearch(''); });
+
+  // ── Queries ──
+
+  const { data: business, isLoading } = useQuery<BusinessDetail>({
     queryKey: ['business', id],
     queryFn: () => api.get(`/platform/businesses/${id}`).then((r) => r.data),
   });
 
-  const updateStatus = useMutation({
+  const { data: storesData } = useQuery<{ data: StoreItem[] }>({
+    queryKey: ['business-stores', id],
+    queryFn: () => api.get(`/platform/businesses/${id}/stores`).then((r) => r.data),
+    enabled: tab === 'stores',
+  });
+
+  const { data: assigneesData } = useQuery<{ data: Assignee[] }>({
+    queryKey: ['business-assignees', id],
+    queryFn: () => api.get(`/platform/businesses/${id}/assignees`).then((r) => r.data),
+    enabled: tab === 'assignees' && canViewAssignees,
+  });
+
+  const { data: accountsData } = useQuery<{ data: AccountOption[] }>({
+    queryKey: ['accounts', { search: assigneeSearch, page: 1, status: 'active' }],
+    queryFn: () =>
+      api.get('/platform/accounts', {
+        params: { search: assigneeSearch || undefined, page: 1, limit: 20, status: 'active' },
+      }).then((r) => r.data),
+    enabled: addAssigneeOpen,
+  });
+
+  // ── Mutations ──
+
+  const updateMut = useMutation({
+    mutationFn: (body: typeof editForm) => api.patch(`/platform/businesses/${id}`, body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['business', id] });
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+      setEditOpen(false);
+    },
+  });
+
+  const statusMut = useMutation({
     mutationFn: (status: string) =>
       api.patch(`/platform/businesses/${id}/status`, { status }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business', id] });
       qc.invalidateQueries({ queryKey: ['businesses'] });
-      qc.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      setSuspendConfirm(null);
     },
   });
+
+  const addAssigneeMut = useMutation({
+    mutationFn: (accountId: string) =>
+      api.post(`/platform/businesses/${id}/assignees`, { accountId, accessLevel: 'support' }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['business-assignees', id] });
+      setAddAssigneeOpen(false);
+      setAssigneeSearch('');
+    },
+  });
+
+  const removeAssigneeMut = useMutation({
+    mutationFn: (accountId: string) =>
+      api.delete(`/platform/businesses/${id}/assignees/${accountId}`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['business-assignees', id] }),
+  });
+
+  // ── Derived ──
+
+  const openEdit = () => {
+    if (!business) return;
+    setEditForm({
+      legalName: business.legalName ?? '',
+      brandName: business.brandName ?? '',
+      email: business.email ?? '',
+      phone: business.phone ?? '',
+      taxCode: business.taxCode ?? '',
+      currencyCode: business.currencyCode ?? '',
+      timezoneName: business.timezoneName ?? '',
+      note: business.note ?? '',
+    });
+    setEditOpen(true);
+  };
+
+  const existingAssigneeIds = new Set((assigneesData?.data ?? []).map((a) => a.accountId));
+  const availableAccounts = (accountsData?.data ?? []).filter((a) => !existingAssigneeIds.has(a.id));
+
+  // ── Loading / Error states ──
 
   if (isLoading) {
     return (
@@ -83,78 +283,531 @@ export default function BusinessDetailPage() {
     );
   }
 
-  const sc = STATUS_CONFIG[business.status] ?? STATUS_CONFIG.inactive;
+  const sc = STATUS_CFG[business.status] ?? STATUS_CFG.inactive;
+  const subSc = SUB_STATUS_CFG[business.subscriptionStatus] ?? SUB_STATUS_CFG.active;
+  const planCls = PLAN_CLS[business.subscriptionPlan?.toLowerCase()] ?? PLAN_CLS.standard;
+  const initials = business.legalName.split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
   return (
-    <div className="max-w-2xl space-y-5">
-      <div className="flex items-center gap-3">
-        <Link href="/businesses" className="text-muted-foreground hover:text-foreground transition-colors">
+    <div className="space-y-5">
+
+      {/* Header */}
+      <div className="flex flex-wrap items-start gap-4">
+        <Link href="/businesses" className="mt-1 text-muted-foreground hover:text-foreground transition-colors shrink-0">
           <ChevronLeft size={20} />
         </Link>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-semibold text-foreground truncate">{business.legalName}</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{business.businessCode}</p>
+        <div className="flex items-center gap-4 flex-1 min-w-0">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-base font-bold text-primary">
+            {initials}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-semibold text-foreground">{business.legalName}</h1>
+              {business.brandName && business.brandName !== business.legalName && (
+                <span className="text-sm text-muted-foreground">({business.brandName})</span>
+              )}
+            </div>
+            <div className="mt-1 flex items-center gap-2 flex-wrap">
+              <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{business.businessCode}</code>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${sc.cls}`}>{sc.label}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${subSc.cls}`}>{subSc.label}</span>
+            </div>
+          </div>
         </div>
-        <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${sc.cls}`}>
-          {sc.label}
-        </span>
-      </div>
-
-      <div className="bg-card border border-border rounded-lg p-5">
-        <h2 className="text-sm font-semibold text-foreground mb-1">Thông tin doanh nghiệp</h2>
-        <InfoRow label="Tên pháp lý" value={business.legalName} />
-        <InfoRow label="Tên thương hiệu" value={business.brandName} />
-        <InfoRow
-          label="Mã doanh nghiệp"
-          value={<code className="text-xs bg-muted px-1.5 py-0.5 rounded">{business.businessCode}</code>}
-        />
-        <InfoRow
-          label="Schema DB"
-          value={<code className="text-xs bg-muted px-1.5 py-0.5 rounded">{business.schemaName}</code>}
-        />
-        <InfoRow label="Email" value={business.email} />
-        <InfoRow label="Số điện thoại" value={business.phone} />
-        <InfoRow label="Múi giờ" value={business.timezoneName} />
-        <InfoRow
-          label="Gói dịch vụ"
-          value={
-            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
-              {business.subscriptionPlan}
-            </span>
-          }
-        />
-        <InfoRow
-          label="Ngày tạo"
-          value={new Date(business.createdAt).toLocaleString('vi-VN')}
-        />
-      </div>
-
-      <div className="bg-card border border-border rounded-lg p-5">
-        <h2 className="text-sm font-semibold text-foreground mb-3">Đổi trạng thái</h2>
-        <div className="flex flex-wrap gap-2">
-          {STATUSES.map(({ key, label }) => {
-            const isActive = business.status === key;
-            return (
+        {canUpdate && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={openEdit}
+              className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-2 text-sm font-medium hover:bg-muted transition"
+            >
+              <Edit2 size={14} /> Chỉnh sửa
+            </button>
+            {business.status === 'active' ? (
               <button
-                key={key}
-                onClick={() => !isActive && updateStatus.mutate(key)}
-                disabled={isActive || updateStatus.isPending}
-                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border font-medium transition ${
-                  isActive
-                    ? 'border-primary bg-primary/10 text-primary cursor-default'
-                    : 'border-input hover:bg-muted text-foreground'
-                } disabled:opacity-60`}
+                onClick={() => setSuspendConfirm('suspend')}
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition"
               >
-                {isActive && <CheckCircle size={12} />}
-                {label}
+                <Lock size={14} /> Tạm khóa
               </button>
-            );
-          })}
-        </div>
-        {updateStatus.isSuccess && (
-          <p className="mt-3 text-xs text-success">Đã cập nhật trạng thái thành công.</p>
+            ) : business.status === 'suspended' ? (
+              <button
+                onClick={() => setSuspendConfirm('activate')}
+                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50 transition"
+              >
+                <LockOpen size={14} /> Kích hoạt
+              </button>
+            ) : null}
+          </div>
         )}
       </div>
+
+      {/* Tabs */}
+      <div className="border-b border-border">
+        <nav className="flex gap-0">
+          {([
+            { key: 'info',         label: 'Thông tin' },
+            { key: 'stores',       label: 'Cửa hàng' },
+            { key: 'subscription', label: 'Gói dịch vụ' },
+            { key: 'assignees',    label: 'Phụ trách' },
+          ] as const).map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                tab === key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Tab: Thông tin */}
+      {tab === 'info' && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div className="rounded-lg border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-1">Thông tin pháp lý</h3>
+            <InfoRow label="Tên pháp lý" value={business.legalName} />
+            <InfoRow label="Tên thương hiệu" value={business.brandName} />
+            <InfoRow label="Mã số thuế" value={business.taxCode} />
+            <InfoRow label="Email liên hệ" value={business.email} />
+            <InfoRow label="Số điện thoại" value={business.phone} />
+          </div>
+          <div className="rounded-lg border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-1">Cấu hình hệ thống</h3>
+            <InfoRow
+              label="Mã doanh nghiệp"
+              value={<code className="text-xs bg-muted px-1.5 py-0.5 rounded">{business.businessCode}</code>}
+            />
+            <InfoRow
+              label="Schema DB"
+              value={<code className="text-xs bg-muted px-1.5 py-0.5 rounded">{business.schemaName ?? '—'}</code>}
+            />
+            <InfoRow label="Tiền tệ" value={business.currencyCode} />
+            <InfoRow label="Múi giờ" value={business.timezoneName} />
+            <InfoRow
+              label="Ngày tạo"
+              value={new Date(business.createdAt).toLocaleString('vi-VN')}
+            />
+            <InfoRow
+              label="Cập nhật lần cuối"
+              value={new Date(business.updatedAt).toLocaleString('vi-VN')}
+            />
+          </div>
+          {business.note && (
+            <div className="rounded-lg border border-border bg-card p-5 lg:col-span-2">
+              <h3 className="text-sm font-semibold text-foreground mb-2">Ghi chú</h3>
+              <p className="text-sm text-muted-foreground whitespace-pre-wrap">{business.note}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Cửa hàng */}
+      {tab === 'stores' && (
+        <div className="rounded-lg border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border px-5 py-3">
+            <h3 className="text-sm font-semibold text-foreground">
+              Cửa hàng{storesData ? ` (${storesData.data.length})` : ''}
+            </h3>
+          </div>
+          {!storesData ? (
+            <div className="px-5 py-10 text-center text-sm text-muted-foreground">Đang tải…</div>
+          ) : storesData.data.length === 0 ? (
+            <div className="px-5 py-12 text-center">
+              <Store size={32} className="mx-auto mb-2 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">Chưa có cửa hàng nào</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/40">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Cửa hàng</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Mã</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Loại</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Địa chỉ</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Nhân viên</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {storesData.data.map((s) => (
+                  <tr key={s.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-bold text-muted-foreground">
+                          <Store size={14} />
+                        </div>
+                        <p className="font-medium text-foreground">{s.storeName}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{s.storeCode}</code>
+                    </td>
+                    <td className="px-4 py-3.5 text-xs text-muted-foreground capitalize">{s.storeType}</td>
+                    <td className="px-4 py-3.5 text-xs text-muted-foreground">
+                      {s.city || s.address ? (
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin size={12} /> {[s.city, s.address].filter(Boolean).join(', ')}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-4 py-3.5 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1">
+                        <User size={12} /> {s.staffCount} nhân viên
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        s.isActive ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
+                      }`}>
+                        {s.isActive ? 'Hoạt động' : 'Ngừng'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Gói dịch vụ */}
+      {tab === 'subscription' && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div className="rounded-lg border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-1">Gói hiện tại</h3>
+            <InfoRow
+              label="Gói dịch vụ"
+              value={
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${planCls}`}>
+                  {business.subscriptionPlan}
+                </span>
+              }
+            />
+            <InfoRow
+              label="Trạng thái"
+              value={
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${subSc.cls}`}>
+                  {subSc.label}
+                </span>
+              }
+            />
+            {business.subscription && (
+              <>
+                <InfoRow
+                  label="Chu kỳ bắt đầu"
+                  value={business.subscription.periodStart
+                    ? new Date(business.subscription.periodStart).toLocaleDateString('vi-VN')
+                    : null}
+                />
+                <InfoRow
+                  label="Chu kỳ kết thúc"
+                  value={business.subscription.periodEnd
+                    ? new Date(business.subscription.periodEnd).toLocaleDateString('vi-VN')
+                    : null}
+                />
+                {business.subscription.renewedAt && (
+                  <InfoRow
+                    label="Gia hạn lần cuối"
+                    value={new Date(business.subscription.renewedAt).toLocaleDateString('vi-VN')}
+                  />
+                )}
+              </>
+            )}
+            {business.subscriptionExpiresAt && (
+              <InfoRow
+                label="Hết hạn lúc"
+                value={new Date(business.subscriptionExpiresAt).toLocaleString('vi-VN')}
+              />
+            )}
+          </div>
+
+          {business.subscriptionStatus === 'trialing' && (
+            <div className="rounded-lg border border-sky-200 bg-sky-500/5 p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Clock3 size={16} className="text-sky-600" />
+                <h3 className="text-sm font-semibold text-sky-700">Thông tin dùng thử</h3>
+              </div>
+              <InfoRow
+                label="Bắt đầu dùng thử"
+                value={business.trialStartedAt
+                  ? new Date(business.trialStartedAt).toLocaleDateString('vi-VN')
+                  : null}
+              />
+              <InfoRow
+                label="Kết thúc dùng thử"
+                value={business.trialEndsAt
+                  ? new Date(business.trialEndsAt).toLocaleDateString('vi-VN')
+                  : null}
+              />
+              <InfoRow
+                label="Còn lại"
+                value={
+                  business.trialDaysLeft !== null ? (
+                    <span className={`font-semibold ${
+                      business.trialDaysLeft <= 2 ? 'text-red-600' :
+                      business.trialDaysLeft <= 5 ? 'text-amber-600' : 'text-sky-700'
+                    }`}>
+                      {business.trialDaysLeft === 0
+                        ? 'Hết hôm nay'
+                        : business.trialDaysLeft < 0
+                        ? 'Đã hết hạn'
+                        : `${business.trialDaysLeft} ngày`}
+                    </span>
+                  ) : null
+                }
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Phụ trách */}
+      {tab === 'assignees' && (
+        <div className="rounded-lg border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border px-5 py-3">
+            <h3 className="text-sm font-semibold text-foreground">
+              Nhân viên phụ trách{assigneesData ? ` (${assigneesData.data.length})` : ''}
+            </h3>
+            {canUpdate && (
+              <button
+                onClick={() => setAddAssigneeOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition"
+              >
+                <Plus size={13} /> Thêm phụ trách
+              </button>
+            )}
+          </div>
+          {!assigneesData ? (
+            <div className="px-5 py-10 text-center text-sm text-muted-foreground">Đang tải…</div>
+          ) : assigneesData.data.length === 0 ? (
+            <div className="px-5 py-12 text-center">
+              <UserCheck size={32} className="mx-auto mb-2 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">Chưa có nhân viên phụ trách</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/40">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Tài khoản</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Cấp độ</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Được gán lúc</th>
+                  {canUpdate && <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground" />}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {assigneesData.data.map((a) => {
+                  const display = a.fullName ?? a.username;
+                  const initials2 = display.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
+                  const lvlCls = ACCESS_LEVEL_CLS[a.accessLevel] ?? ACCESS_LEVEL_CLS.viewer;
+                  const lvlLabel = ACCESS_LEVEL_LABEL[a.accessLevel] ?? a.accessLevel;
+                  return (
+                    <tr key={a.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                            {initials2}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground">{display}</p>
+                            <p className="text-xs text-muted-foreground">{a.email ?? `@${a.username}`}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${lvlCls}`}>{lvlLabel}</span>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs text-muted-foreground">
+                        {new Date(a.createdAt).toLocaleDateString('vi-VN')}
+                      </td>
+                      {canUpdate && (
+                        <td className="px-4 py-3.5 text-right">
+                          {a.accessLevel !== 'owner' && (
+                            <button
+                              onClick={() => removeAssigneeMut.mutate(a.accountId)}
+                              disabled={removeAssigneeMut.isPending}
+                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-red-600 transition disabled:opacity-40"
+                            >
+                              <Trash2 size={13} /> Gỡ
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Modal: Edit Business Info */}
+      {editOpen && canUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg border border-border bg-background p-6 shadow-xl">
+            <div className="mb-5 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-foreground">Chỉnh sửa thông tin</h3>
+              <button onClick={() => setEditOpen(false)} className="text-muted-foreground hover:text-foreground"><X size={18} /></button>
+            </div>
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Tên pháp lý *">
+                  <input className={INPUT} value={editForm.legalName} onChange={(e) => setEditForm((f) => ({ ...f, legalName: e.target.value }))} />
+                </Field>
+                <Field label="Tên thương hiệu">
+                  <input className={INPUT} value={editForm.brandName} onChange={(e) => setEditForm((f) => ({ ...f, brandName: e.target.value }))} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Email">
+                  <input type="email" className={INPUT} value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} />
+                </Field>
+                <Field label="Số điện thoại">
+                  <input className={INPUT} value={editForm.phone} onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Mã số thuế">
+                  <input className={INPUT} value={editForm.taxCode} onChange={(e) => setEditForm((f) => ({ ...f, taxCode: e.target.value }))} />
+                </Field>
+                <Field label="Tiền tệ">
+                  <input className={INPUT} value={editForm.currencyCode} onChange={(e) => setEditForm((f) => ({ ...f, currencyCode: e.target.value }))} placeholder="VND" />
+                </Field>
+              </div>
+              <Field label="Múi giờ">
+                <input className={INPUT} value={editForm.timezoneName} onChange={(e) => setEditForm((f) => ({ ...f, timezoneName: e.target.value }))} placeholder="Asia/Ho_Chi_Minh" />
+              </Field>
+              <Field label="Ghi chú">
+                <textarea className={INPUT + ' resize-none'} rows={3} value={editForm.note} onChange={(e) => setEditForm((f) => ({ ...f, note: e.target.value }))} />
+              </Field>
+            </div>
+            {updateMut.isError && (
+              <p className="mt-3 text-xs text-destructive">
+                {(updateMut.error as any)?.response?.data?.message ?? 'Lỗi khi cập nhật.'}
+              </p>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setEditOpen(false)} className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition">Hủy</button>
+              <button
+                onClick={() => updateMut.mutate(editForm)}
+                disabled={updateMut.isPending || !editForm.legalName}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
+              >
+                {updateMut.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Suspend / Activate Confirm */}
+      {suspendConfirm !== null && canUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-xl">
+            <div className="mb-4 flex items-start gap-3">
+              <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                suspendConfirm === 'suspend' ? 'bg-red-500/10' : 'bg-emerald-500/10'
+              }`}>
+                {suspendConfirm === 'suspend'
+                  ? <AlertTriangle size={18} className="text-red-600" />
+                  : <CheckCircle2 size={18} className="text-emerald-600" />}
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  {suspendConfirm === 'suspend' ? 'Tạm khóa doanh nghiệp?' : 'Kích hoạt doanh nghiệp?'}
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {suspendConfirm === 'suspend'
+                    ? `Doanh nghiệp "${business.legalName}" sẽ bị tạm khóa. Người dùng sẽ không thể đăng nhập.`
+                    : `Doanh nghiệp "${business.legalName}" sẽ được kích hoạt trở lại.`}
+                </p>
+              </div>
+            </div>
+            {statusMut.isError && (
+              <p className="mb-3 text-xs text-destructive">
+                {(statusMut.error as any)?.response?.data?.message ?? 'Lỗi khi cập nhật.'}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setSuspendConfirm(null)} className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition">Hủy</button>
+              <button
+                onClick={() => statusMut.mutate(suspendConfirm === 'suspend' ? 'suspended' : 'active')}
+                disabled={statusMut.isPending}
+                className={`rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60 transition ${
+                  suspendConfirm === 'suspend' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                {statusMut.isPending ? 'Đang xử lý...' : suspendConfirm === 'suspend' ? 'Tạm khóa' : 'Kích hoạt'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add Assignee */}
+      {addAssigneeOpen && canUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-foreground">Thêm nhân viên phụ trách</h3>
+              <button onClick={() => { setAddAssigneeOpen(false); setAssigneeSearch(''); }} className="text-muted-foreground hover:text-foreground"><X size={18} /></button>
+            </div>
+            <div className="relative mb-3">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Tìm tài khoản..."
+                value={assigneeSearch}
+                onChange={(e) => setAssigneeSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+                autoFocus
+              />
+            </div>
+            <div className="max-h-64 overflow-y-auto divide-y divide-border rounded-md border border-border">
+              {availableAccounts.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  {assigneeSearch ? 'Không tìm thấy tài khoản phù hợp' : 'Tất cả tài khoản đã được thêm'}
+                </div>
+              ) : (
+                availableAccounts.map((a) => {
+                  const name = a.fullName ?? a.username;
+                  const ini = name.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => addAssigneeMut.mutate(a.id)}
+                      disabled={addAssigneeMut.isPending}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 transition disabled:opacity-50"
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{ini}</div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-foreground truncate">{name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{a.email ?? `@${a.username}`}</p>
+                      </div>
+                      {a.isPlatformAdmin && (
+                        <span className="text-xs text-primary font-medium shrink-0">Admin</span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            {addAssigneeMut.isError && (
+              <p className="mt-3 text-xs text-destructive">
+                {(addAssigneeMut.error as any)?.response?.data?.message ?? 'Lỗi khi thêm phụ trách.'}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

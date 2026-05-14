@@ -14,11 +14,13 @@ import { Pool } from 'pg';
 import { eq, ilike, or, count, desc, and, inArray, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { BusinessDbService } from '@common/database/business-db.service';
-import { businesses, businessSubscriptions, accountBusinesses } from '@schema/platform';
+import { businesses, businessSubscriptions, accountBusinesses, accounts } from '@schema/platform';
 import { env } from '@config/env';
 import type { CreateBusinessDto } from './dto/create-business.dto';
 import type { ListBusinessesDto } from './dto/list-businesses.dto';
 import type { UpdateStatusDto } from './dto/update-status.dto';
+import type { UpdateBusinessDto } from './dto/update-business.dto';
+import type { AddAssigneeDto } from './dto/manage-assignee.dto';
 
 const TRIAL_DAYS = 10;
 
@@ -246,13 +248,188 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         subscriptionExpiresAt: businesses.subscriptionExpiresAt,
         createdAt: businesses.createdAt,
         updatedAt: businesses.updatedAt,
+        _subStatus: businessSubscriptions.status,
+        _subPeriodStart: businessSubscriptions.currentPeriodStart,
+        _subPeriodEnd: businessSubscriptions.currentPeriodEnd,
+        _subRenewedAt: businessSubscriptions.renewedAt,
       })
       .from(businesses)
+      .leftJoin(businessSubscriptions, eq(businessSubscriptions.businessId, businesses.id))
       .where(eq(businesses.id, id))
       .limit(1);
 
     if (!business) throw new NotFoundException('Business not found');
-    return business;
+
+    const { _subStatus, _subPeriodStart, _subPeriodEnd, _subRenewedAt, ...row } = business;
+    const subscriptionStatus = deriveSubscriptionStatus(row.status, row.createdAt, _subStatus, _subPeriodEnd);
+    const trialEndsAt = row.createdAt
+      ? new Date(new Date(row.createdAt).getTime() + TRIAL_DAYS * 86_400_000).toISOString()
+      : null;
+    const trialDaysLeft =
+      subscriptionStatus === 'trialing' && trialEndsAt
+        ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86_400_000))
+        : null;
+
+    return {
+      ...row,
+      subscriptionStatus,
+      trialStartedAt: row.createdAt,
+      trialEndsAt,
+      trialDaysLeft,
+      subscription: _subPeriodEnd
+        ? {
+            planCode: _subStatus ? row.subscriptionPlan : null,
+            status: _subStatus,
+            periodStart: _subPeriodStart,
+            periodEnd: _subPeriodEnd,
+            renewedAt: _subRenewedAt,
+          }
+        : null,
+    };
+  }
+
+  async getStores(id: string) {
+    const [biz] = await this.platformDb.db
+      .select({ schemaName: businesses.schemaName })
+      .from(businesses)
+      .where(eq(businesses.id, id))
+      .limit(1);
+    if (!biz) throw new NotFoundException('Business not found');
+    if (!biz.schemaName) return { data: [] };
+
+    try {
+      const { rows } = await this.adminPool.query<{
+        id: string;
+        storeCode: string;
+        storeName: string;
+        storeType: string;
+        phone: string | null;
+        email: string | null;
+        address: string | null;
+        city: string | null;
+        isActive: boolean;
+        createdAt: string;
+      }>(
+        `SELECT id::text, store_code AS "storeCode", store_name AS "storeName",
+                store_type AS "storeType", phone, email, address, city,
+                is_active AS "isActive", created_at AS "createdAt"
+         FROM "${biz.schemaName}".stores ORDER BY created_at`,
+      );
+      const staffCounts = await this.getStaffCountsByStore(biz.schemaName, rows.map((r) => r.id));
+      return {
+        data: rows.map((r) => ({ ...r, staffCount: staffCounts.get(r.id) ?? 0 })),
+      };
+    } catch {
+      return { data: [] };
+    }
+  }
+
+  private async getStaffCountsByStore(schemaName: string, storeIds: string[]): Promise<Map<string, number>> {
+    if (storeIds.length === 0) return new Map();
+    try {
+      const { rows } = await this.adminPool.query<{ store_id: string; cnt: string }>(
+        `SELECT primary_store_id AS store_id, COUNT(*)::text AS cnt
+         FROM "${schemaName}".staff_members
+         WHERE primary_store_id = ANY($1) AND is_active = true
+         GROUP BY primary_store_id`,
+        [storeIds],
+      );
+      return new Map(rows.map((r) => [r.store_id, parseInt(r.cnt, 10)]));
+    } catch {
+      return new Map();
+    }
+  }
+
+  async getAssignees(businessId: string) {
+    const rows = await this.platformDb.db
+      .select({
+        id: accountBusinesses.id,
+        accountId: accounts.id,
+        fullName: accounts.fullName,
+        email: accounts.email,
+        username: accounts.username,
+        isPlatformAdmin: accounts.isPlatformAdmin,
+        accessLevel: accountBusinesses.accessLevel,
+        status: accountBusinesses.status,
+        createdAt: accountBusinesses.createdAt,
+      })
+      .from(accountBusinesses)
+      .innerJoin(accounts, eq(accounts.id, accountBusinesses.accountId))
+      .where(and(eq(accountBusinesses.businessId, businessId), eq(accountBusinesses.status, 'active')))
+      .orderBy(accountBusinesses.createdAt);
+    return { data: rows };
+  }
+
+  async addAssignee(businessId: string, dto: AddAssigneeDto) {
+    const [biz] = await this.platformDb.db
+      .select({ id: businesses.id })
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1);
+    if (!biz) throw new NotFoundException('Business not found');
+
+    const [account] = await this.platformDb.db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(eq(accounts.id, dto.accountId))
+      .limit(1);
+    if (!account) throw new NotFoundException('Account not found');
+
+    await this.platformDb.db
+      .insert(accountBusinesses)
+      .values({
+        accountId: dto.accountId,
+        businessId,
+        accessLevel: dto.accessLevel,
+        status: 'active',
+      })
+      .onConflictDoNothing();
+
+    return { ok: true };
+  }
+
+  async removeAssignee(businessId: string, accountId: string) {
+    await this.platformDb.db
+      .delete(accountBusinesses)
+      .where(
+        and(
+          eq(accountBusinesses.businessId, businessId),
+          eq(accountBusinesses.accountId, accountId),
+        ),
+      );
+    return { ok: true };
+  }
+
+  async update(id: string, dto: UpdateBusinessDto, actorId?: string) {
+    const [business] = await this.platformDb.db
+      .select({ id: businesses.id })
+      .from(businesses)
+      .where(eq(businesses.id, id))
+      .limit(1);
+    if (!business) throw new NotFoundException('Business not found');
+
+    const patch: Partial<typeof businesses.$inferInsert> = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (dto.legalName !== undefined) patch.legalName = dto.legalName;
+    if (dto.brandName !== undefined) patch.brandName = dto.brandName;
+    if (dto.email !== undefined) patch.email = dto.email;
+    if (dto.phone !== undefined) patch.phone = dto.phone;
+    if (dto.taxCode !== undefined) patch.taxCode = dto.taxCode;
+    if (dto.currencyCode !== undefined) patch.currencyCode = dto.currencyCode;
+    if (dto.timezoneName !== undefined) patch.timezoneName = dto.timezoneName;
+    if (dto.note !== undefined) patch.note = dto.note;
+
+    const doUpdate = (db: typeof this.platformDb.db) =>
+      db.update(businesses).set(patch).where(eq(businesses.id, id));
+
+    if (actorId) {
+      await this.platformDb.runWithActor(actorId, doUpdate);
+    } else {
+      await doUpdate(this.platformDb.db);
+    }
+
+    return this.getOne(id);
   }
 
   async create(dto: CreateBusinessDto, createdByAccountId?: string) {
