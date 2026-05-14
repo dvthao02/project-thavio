@@ -13,7 +13,7 @@ export default function NotFound() {
           href="/dashboard"
           className="inline-flex mt-5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
         >
-          Về Dashboard
+          Về tổng quan
         </Link>
       </div>
     </div>

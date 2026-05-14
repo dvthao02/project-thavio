@@ -29,13 +29,13 @@ export function ModulePlaceholder({
             <Icon size={20} />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">Module đang được thiết kế</p>
+            <p className="text-sm font-semibold text-foreground">Chức năng đang được thiết kế</p>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-              Route đã được đặt vào app shell để frontend và backend cùng bám theo contract.
+              Màn hình đã được đặt trong khung quản trị để giao diện và API cùng bám theo tài liệu nghiệp vụ.
             </p>
             {permission && (
               <p className="text-xs text-muted-foreground mt-3">
-                Permission dự kiến: <code className="bg-muted px-1.5 py-0.5 rounded">{permission}</code>
+                Quyền dự kiến: <code className="bg-muted px-1.5 py-0.5 rounded">{permission}</code>
               </p>
             )}
           </div>

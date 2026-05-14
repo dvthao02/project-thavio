@@ -33,7 +33,7 @@ const NAV_GROUPS = [
   {
     label: 'Tổng quan',
     items: [
-      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard },
       { href: '/alerts', label: 'Cảnh báo & SLA', icon: AlertTriangle },
       { href: '/audit-logs', label: 'Nhật ký hoạt động', icon: FileClock },
     ],
@@ -43,7 +43,7 @@ const NAV_GROUPS = [
     items: [
       { href: '/businesses', label: 'Danh sách doanh nghiệp', icon: Building2 },
       { href: '/businesses/new', label: 'Tạo doanh nghiệp', icon: PlusCircle },
-      { href: '/subscriptions/trials', label: 'Trial & gia hạn', icon: RotateCcw },
+      { href: '/subscriptions/trials', label: 'Dùng thử & gia hạn', icon: RotateCcw },
       { href: '/subscriptions/plans', label: 'Gói dịch vụ', icon: Package },
       { href: '/billing/invoices', label: 'Hợp đồng & hóa đơn', icon: ReceiptText },
     ],
@@ -51,8 +51,8 @@ const NAV_GROUPS = [
   {
     label: 'Tài khoản & RBAC',
     items: [
-      { href: '/accounts', label: 'Tài khoản platform', icon: Users },
-      { href: '/rbac/roles', label: 'Vai trò platform', icon: ShieldCheck },
+      { href: '/accounts', label: 'Tài khoản nền tảng', icon: Users },
+      { href: '/rbac/roles', label: 'Vai trò nền tảng', icon: ShieldCheck },
       { href: '/rbac/permissions', label: 'Phân quyền', icon: KeyRound },
       { href: '/sessions', label: 'Phiên đăng nhập', icon: Monitor },
       { href: '/security/devices', label: 'MFA & thiết bị', icon: Smartphone },
@@ -62,16 +62,16 @@ const NAV_GROUPS = [
     label: 'Vận hành',
     items: [
       { href: '/operations/assignees', label: 'Nhân viên phụ trách', icon: UserCheck },
-      { href: '/support/tickets', label: 'Ticket hỗ trợ', icon: LifeBuoy },
+      { href: '/support/tickets', label: 'Yêu cầu hỗ trợ', icon: LifeBuoy },
       { href: '/billing/reconciliation', label: 'Đối soát thanh toán', icon: Landmark },
-      { href: '/support/impersonation', label: 'Impersonate hỗ trợ', icon: UserCog },
+      { href: '/support/impersonation', label: 'Hỗ trợ truy cập', icon: UserCog },
     ],
   },
   {
     label: 'Cấu hình',
     items: [
       { href: '/settings/catalogs', label: 'Danh mục', icon: Tags },
-      { href: '/integrations/webhooks', label: 'Webhook/API', icon: Webhook },
+      { href: '/integrations/webhooks', label: 'Tích hợp & Webhook', icon: Webhook },
       { href: '/settings/security', label: 'Bảo mật', icon: LockKeyhole },
     ],
   },
@@ -110,7 +110,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             <img src="/logo-icon.png" alt="Thavio" className="w-12 h-auto object-contain shrink-0" />
             <div className="min-w-0">
               <p className="text-lg font-bold leading-none tracking-wide text-foreground">THAVIO</p>
-              <p className="text-[11px] text-muted-foreground mt-1">Platform Admin</p>
+              <p className="text-[11px] text-muted-foreground mt-1">Quản trị nền tảng</p>
             </div>
           </div>
         )}

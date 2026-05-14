@@ -400,7 +400,7 @@ export default function DashboardPage() {
                   <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                     a.status === 'active' ? 'bg-emerald-500/10 text-emerald-600' :
                     a.status === 'locked' ? 'bg-red-500/10 text-red-600' : 'bg-muted text-muted-foreground'
-                  }`}>{a.status === 'active' ? 'Active' : a.status === 'locked' ? 'Khóa' : a.status}</span>
+                  }`}>{a.status === 'active' ? 'Hoạt động' : a.status === 'locked' ? 'Khóa' : a.status}</span>
                 </div>
               ))
             )}

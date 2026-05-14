@@ -155,6 +155,66 @@ type PlatformBusinessRow = {
 | Gan nhan vien phu trach | `PATCH /api/v1/platform/businesses/:id/assignee` | `platform.business.update` | yes |
 | Impersonate | `POST /api/v1/platform/businesses/:id/impersonate` | `platform.business.impersonate` | critical |
 
+## Audit APIs
+
+Admin UI tach 2 loai audit:
+
+- `platform_audit_log`: thay doi row trong database, phu hop xem INSERT/UPDATE/DELETE va oldData/newData.
+- `audit_events`: su kien nghiep vu cua platform admin, vi du login/logout, impersonate, export, reset MFA, change plan.
+
+### Data change logs
+
+`GET /api/v1/platform/audit-logs`
+
+Query params:
+
+| Param | Type | Ghi chu |
+|---|---|---|
+| `page` | number | Default 1 |
+| `limit` | number | Default 50, max 100 |
+| `tableName` | string | Vi du `businesses`, `accounts`, `account_businesses` |
+| `operation` | `INSERT` \| `UPDATE` \| `DELETE` | Thao tac database |
+| `recordId` | uuid | ID ban ghi |
+| `from` | ISO datetime | Tu thoi diem |
+| `to` | ISO datetime | Den thoi diem |
+
+`GET /api/v1/platform/audit-logs/table-names` tra `string[]`.
+
+### Platform events
+
+`GET /api/v1/platform/audit-logs/events`
+
+Query params:
+
+| Param | Type | Ghi chu |
+|---|---|---|
+| `page` | number | Default 1 |
+| `limit` | number | Default 50, max 100 |
+| `eventType` | string | Vi du `platform_login_success`, `platform_logout` |
+| `objectType` | string | Vi du `platform_auth`, `business`, `subscription` |
+| `objectId` | string | ID doi tuong nghiep vu |
+| `accountId` | uuid | Platform account thuc hien |
+| `businessId` | uuid | Business lien quan neu co |
+| `from` | ISO datetime | Tu thoi diem |
+| `to` | ISO datetime | Den thoi diem |
+
+`GET /api/v1/platform/audit-logs/event-types` tra `string[]`.
+
+Moi thao tac admin platform co y nghia nghiep vu nen ghi `audit_events`, khong chi dua vao DB trigger. Cac event type toi thieu:
+
+| Event type | Khi nao ghi |
+|---|---|
+| `platform_login_success` | Dang nhap platform thanh cong |
+| `platform_login_failed` | Dang nhap platform that bai |
+| `platform_logout` | Dang xuat platform |
+| `platform_impersonate_start` | Bat dau impersonate tenant |
+| `platform_impersonate_end` | Ket thuc impersonate tenant |
+| `platform_account_status_changed` | Khoa/mo khoa/vo hieu hoa account |
+| `platform_mfa_reset` | Reset MFA |
+| `platform_business_assigned` | Gan nhan vien phu trach business |
+| `platform_subscription_plan_changed` | Doi goi dich vu |
+| `platform_export_requested` | Xuat du lieu quan tri |
+
 ## Trial rules
 
 - Trial default: 10 ngay.

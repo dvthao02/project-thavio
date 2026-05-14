@@ -118,7 +118,7 @@ function payloadString(payload: Record<string, unknown>, key: string) {
 
 const TABLE_LABELS: Record<string, string> = {
   businesses: 'Doanh nghiệp',
-  accounts: 'Tài khoản platform',
+  accounts: 'Tài khoản nền tảng',
   account_businesses: 'Phân công phụ trách',
   business_subscriptions: 'Gói dịch vụ',
 };
@@ -136,7 +136,7 @@ function recordLabel(log: AuditLog): string {
     case 'accounts':
       return (data.username as string) ?? (data.full_name as string) ?? shortId(log.recordId);
     case 'account_businesses':
-      return `acct:${shortId(data.account_id as string)} → biz:${shortId(data.business_id as string)}`;
+      return `TK:${shortId(data.account_id as string)} -> DN:${shortId(data.business_id as string)}`;
     default:
       return shortId(log.recordId);
   }
@@ -147,10 +147,10 @@ function eventLabel(eventType: string) {
     platform_login_success: 'Đăng nhập thành công',
     platform_login_failed: 'Đăng nhập thất bại',
     platform_logout: 'Đăng xuất',
-    platform_impersonate_start: 'Bắt đầu hỗ trợ tenant',
-    platform_impersonate_end: 'Kết thúc hỗ trợ tenant',
+    platform_impersonate_start: 'Bắt đầu hỗ trợ truy cập',
+    platform_impersonate_end: 'Kết thúc hỗ trợ truy cập',
     platform_account_status_changed: 'Đổi trạng thái tài khoản',
-    platform_mfa_reset: 'Reset MFA',
+    platform_mfa_reset: 'Đặt lại MFA',
     platform_business_assigned: 'Gán nhân viên phụ trách',
     platform_subscription_plan_changed: 'Đổi gói dịch vụ',
     platform_export_requested: 'Xuất dữ liệu',
@@ -160,10 +160,10 @@ function eventLabel(eventType: string) {
 
 function objectTypeLabel(objectType: string) {
   const labels: Record<string, string> = {
-    platform_auth: 'Xác thực admin',
+    platform_auth: 'Xác thực quản trị',
     business: 'Doanh nghiệp',
     subscription: 'Gói dịch vụ',
-    account: 'Tài khoản platform',
+    account: 'Tài khoản nền tảng',
     role: 'Vai trò',
   };
   return labels[objectType] ?? objectType;
@@ -343,7 +343,7 @@ export default function AuditLogsPage() {
             <h1 className="text-xl font-semibold text-foreground">Nhật ký hoạt động</h1>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Xem ai đã làm gì trong admin platform và dữ liệu nào đã thay đổi.
+            Xem ai đã thao tác trong trang quản trị và dữ liệu nào đã thay đổi.
           </p>
         </div>
 
@@ -367,7 +367,7 @@ export default function AuditLogsPage() {
             }`}
           >
             <Activity size={15} />
-            Hoạt động admin
+            Hoạt động quản trị
           </button>
           <button
             type="button"
@@ -383,8 +383,8 @@ export default function AuditLogsPage() {
 
         <p className="text-xs text-muted-foreground">
           {mode === 'events'
-            ? 'Ghi nhận login, logout, impersonate, export và thao tác nghiệp vụ.'
-            : 'Ghi nhận INSERT, UPDATE, DELETE ở database kèm oldData/newData.'}
+            ? 'Ghi nhận đăng nhập, đăng xuất, hỗ trợ truy cập, xuất dữ liệu và thao tác nghiệp vụ.'
+            : 'Ghi nhận tạo mới, cập nhật, xóa dữ liệu kèm dữ liệu cũ và mới.'}
         </p>
       </div>
 
@@ -418,7 +418,7 @@ export default function AuditLogsPage() {
               <input
                 value={objectId}
                 onChange={(event) => updateFilter(() => setObjectId(event.target.value))}
-                placeholder="Account, business, session..."
+                placeholder="Tài khoản, doanh nghiệp, phiên..."
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </label>
@@ -469,7 +469,7 @@ export default function AuditLogsPage() {
               <input
                 value={search}
                 onChange={(event) => updateFilter(() => setSearch(event.target.value))}
-                placeholder="Tên business, username, email..."
+                placeholder="Tên doanh nghiệp, tên đăng nhập, email..."
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </label>
@@ -547,7 +547,7 @@ export default function AuditLogsPage() {
               {isLoading ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
-                    Đang tải hoạt động admin...
+                    Đang tải hoạt động quản trị...
                   </td>
                 </tr>
               ) : !eventsQuery.data?.data.length ? (
@@ -555,7 +555,7 @@ export default function AuditLogsPage() {
                   <td colSpan={6} className="px-4 py-12 text-center">
                     <Activity size={34} className="mx-auto mb-2 text-muted-foreground/40" />
                     <p className="text-sm text-muted-foreground">Chưa có hoạt động nào được ghi nhận</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Login, logout, impersonate sẽ xuất hiện ở đây khi API ghi vào <code className="bg-muted px-1 rounded">audit_events</code></p>
+                    <p className="mt-1 text-xs text-muted-foreground">Đăng nhập, đăng xuất và hỗ trợ truy cập sẽ xuất hiện ở đây khi API ghi nhận sự kiện.</p>
                   </td>
                 </tr>
               ) : (
@@ -612,7 +612,7 @@ export default function AuditLogsPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Thời gian</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Bảng</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Thao tác</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Record</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Bản ghi</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Người đổi</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Trường đổi</th>
                 <th className="px-4 py-3" />
@@ -745,13 +745,13 @@ export default function AuditLogsPage() {
               <p className="mt-1 font-medium text-foreground">{eventActor(selectedEvent)}</p>
             </div>
             <div>
-              <p className="text-muted-foreground">Account ID</p>
+              <p className="text-muted-foreground">ID tài khoản</p>
               <code className="mt-1 block truncate rounded bg-muted px-2 py-1" title={selectedEvent.accountId ?? ''}>
                 {selectedEvent.accountId ?? '-'}
               </code>
             </div>
             <div>
-              <p className="text-muted-foreground">Object ID</p>
+              <p className="text-muted-foreground">ID đối tượng</p>
               <code className="mt-1 block truncate rounded bg-muted px-2 py-1" title={selectedEvent.objectId ?? ''}>
                 {selectedEvent.objectId ?? '-'}
               </code>
@@ -790,7 +790,7 @@ export default function AuditLogsPage() {
 
           <div className="mb-4 grid gap-3 text-xs md:grid-cols-3">
             <div>
-              <p className="text-muted-foreground">Record ID</p>
+              <p className="text-muted-foreground">ID bản ghi</p>
               <code className="mt-1 block truncate rounded bg-muted px-2 py-1" title={selectedLog.recordId ?? ''}>
                 {selectedLog.recordId ?? '-'}
               </code>

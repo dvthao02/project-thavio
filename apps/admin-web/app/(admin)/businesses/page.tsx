@@ -50,23 +50,23 @@ interface ListResponse {
 
 
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
-  active: { label: 'Active', cls: 'bg-emerald-500/10 text-emerald-700' },
-  pending: { label: 'Pending', cls: 'bg-amber-500/10 text-amber-700' },
-  suspended: { label: 'Suspended', cls: 'bg-red-500/10 text-red-700' },
-  inactive: { label: 'Inactive', cls: 'bg-slate-500/10 text-slate-600' },
-  trial: { label: 'Trial cũ', cls: 'bg-sky-500/10 text-sky-700' },
-  closed: { label: 'Closed', cls: 'bg-slate-500/10 text-slate-600' },
+  active: { label: 'Đang hoạt động', cls: 'bg-emerald-500/10 text-emerald-700' },
+  pending: { label: 'Chờ khởi tạo', cls: 'bg-amber-500/10 text-amber-700' },
+  suspended: { label: 'Tạm khóa', cls: 'bg-red-500/10 text-red-700' },
+  inactive: { label: 'Ngừng hoạt động', cls: 'bg-slate-500/10 text-slate-600' },
+  trial: { label: 'Dùng thử cũ', cls: 'bg-sky-500/10 text-sky-700' },
+  closed: { label: 'Đã đóng', cls: 'bg-slate-500/10 text-slate-600' },
 };
 
 const SUBSCRIPTION_CONFIG: Record<string, { label: string; cls: string }> = {
-  trialing: { label: 'Trialing', cls: 'bg-sky-500/10 text-sky-700' },
-  trial: { label: 'Trialing', cls: 'bg-sky-500/10 text-sky-700' },
-  active: { label: 'Active', cls: 'bg-emerald-500/10 text-emerald-700' },
-  past_due: { label: 'Past due', cls: 'bg-orange-500/10 text-orange-700' },
-  suspended: { label: 'Suspended', cls: 'bg-red-500/10 text-red-700' },
-  cancelled: { label: 'Cancelled', cls: 'bg-slate-500/10 text-slate-600' },
-  pending: { label: 'Pending', cls: 'bg-amber-500/10 text-amber-700' },
-  inactive: { label: 'Inactive', cls: 'bg-slate-500/10 text-slate-600' },
+  trialing: { label: 'Đang dùng thử', cls: 'bg-sky-500/10 text-sky-700' },
+  trial: { label: 'Đang dùng thử', cls: 'bg-sky-500/10 text-sky-700' },
+  active: { label: 'Đang trả phí', cls: 'bg-emerald-500/10 text-emerald-700' },
+  past_due: { label: 'Quá hạn thanh toán', cls: 'bg-orange-500/10 text-orange-700' },
+  suspended: { label: 'Tạm khóa', cls: 'bg-red-500/10 text-red-700' },
+  cancelled: { label: 'Đã hủy', cls: 'bg-slate-500/10 text-slate-600' },
+  pending: { label: 'Chờ xử lý', cls: 'bg-amber-500/10 text-amber-700' },
+  inactive: { label: 'Ngừng hoạt động', cls: 'bg-slate-500/10 text-slate-600' },
 };
 
 const PLAN_CLS: Record<string, string> = {
@@ -234,7 +234,7 @@ export default function BusinessesPage() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">Vận hành doanh nghiệp</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Theo dõi tenant, trial 10 ngày, gói dịch vụ và nhân viên phụ trách.
+            Theo dõi doanh nghiệp, dùng thử 10 ngày, gói dịch vụ và nhân viên phụ trách.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -254,11 +254,11 @@ export default function BusinessesPage() {
 
       <div className="grid grid-cols-2 xl:grid-cols-6 gap-3">
         <StatCard label="Tổng doanh nghiệp" value={stats.total || total} sub={`${total} bản ghi API`} icon={Building2} tone="bg-primary/10 text-primary" />
-        <StatCard label="Active" value={stats.active} sub="Đăng nhập được" icon={CheckCircle2} tone="bg-emerald-500/10 text-emerald-700" />
-        <StatCard label="Trial 10 ngày" value={stats.trialing} sub={`${stats.expiring} sắp hết hạn`} icon={Clock3} tone="bg-sky-500/10 text-sky-700" />
-        <StatCard label="Đã trả phí" value={stats.paid} sub="subscription active" icon={RefreshCw} tone="bg-cyan-500/10 text-cyan-700" />
-        <StatCard label="Suspended" value={stats.suspended} sub="Hết trial / quá hạn" icon={AlertTriangle} tone="bg-red-500/10 text-red-700" />
-        <StatCard label="Phụ trách" value={stats.assigneeCount} sub="platform staff" icon={UserCheck} tone="bg-slate-500/10 text-slate-600" />
+        <StatCard label="Đang hoạt động" value={stats.active} sub="Đăng nhập được" icon={CheckCircle2} tone="bg-emerald-500/10 text-emerald-700" />
+        <StatCard label="Dùng thử 10 ngày" value={stats.trialing} sub={`${stats.expiring} sắp hết hạn`} icon={Clock3} tone="bg-sky-500/10 text-sky-700" />
+        <StatCard label="Đã trả phí" value={stats.paid} sub="Gói đang hiệu lực" icon={RefreshCw} tone="bg-cyan-500/10 text-cyan-700" />
+        <StatCard label="Tạm khóa" value={stats.suspended} sub="Hết dùng thử / quá hạn" icon={AlertTriangle} tone="bg-red-500/10 text-red-700" />
+        <StatCard label="Phụ trách" value={stats.assigneeCount} sub="Nhân viên nền tảng" icon={UserCheck} tone="bg-slate-500/10 text-slate-600" />
       </div>
 
       <div className="bg-card border border-border rounded-lg p-4">
@@ -266,7 +266,7 @@ export default function BusinessesPage() {
           <div>
             <h2 className="text-sm font-semibold text-foreground">Danh sách doanh nghiệp</h2>
             <p className="text-xs text-muted-foreground mt-1">
-              Trial là lifecycle subscription; access vẫn là Active cho tới khi hết hạn.
+              Dùng thử là vòng đời gói dịch vụ; quyền truy cập vẫn hoạt động cho tới khi hết hạn.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -298,22 +298,22 @@ export default function BusinessesPage() {
             className="text-sm border border-input rounded-md bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring text-foreground"
           >
             <option value="">Tất cả trạng thái</option>
-            <option value="active">Active</option>
-            <option value="pending">Pending</option>
-            <option value="suspended">Suspended</option>
-            <option value="inactive">Inactive</option>
+            <option value="active">Đang hoạt động</option>
+            <option value="pending">Chờ khởi tạo</option>
+            <option value="suspended">Tạm khóa</option>
+            <option value="inactive">Ngừng hoạt động</option>
           </select>
           <select
             value={subscriptionStatus}
             onChange={(e) => setSubscriptionStatus(e.target.value)}
             className="text-sm border border-input rounded-md bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring text-foreground"
           >
-            <option value="">Tất cả subscription</option>
-            <option value="trialing">trialing</option>
-            <option value="active">active</option>
-            <option value="past_due">past_due</option>
-            <option value="suspended">suspended</option>
-            <option value="cancelled">cancelled</option>
+            <option value="">Tất cả gói dịch vụ</option>
+            <option value="trialing">Đang dùng thử</option>
+            <option value="active">Đang trả phí</option>
+            <option value="past_due">Quá hạn thanh toán</option>
+            <option value="suspended">Tạm khóa</option>
+            <option value="cancelled">Đã hủy</option>
           </select>
           <select
             value={assigneeId}
@@ -331,8 +331,8 @@ export default function BusinessesPage() {
 
         <div className="flex flex-wrap gap-2 mb-4">
           {[
-            { value: '', label: 'Tất cả trial' },
-            { value: 'active', label: 'Còn trial' },
+            { value: '', label: 'Tất cả dùng thử' },
+            { value: 'active', label: 'Còn dùng thử' },
             { value: 'expiring', label: 'Sắp hết hạn' },
             { value: 'expired', label: 'Hết hạn' },
           ].map((item) => (
@@ -357,8 +357,8 @@ export default function BusinessesPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Doanh nghiệp</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Mã</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Gói</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Subscription</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Trial</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Gói dịch vụ</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Dùng thử</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Truy cập</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Phụ trách</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Cửa hàng đầu tiên</th>

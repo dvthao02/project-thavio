@@ -5,10 +5,10 @@ export default function AssigneesPage() {
   return (
     <ModulePlaceholder
       title="Nhân viên phụ trách"
-      description="Phân công platform staff chăm sóc doanh nghiệp, trial sắp hết hạn và ticket mở."
+      description="Phân công nhân viên nền tảng chăm sóc doanh nghiệp, dùng thử sắp hết hạn và yêu cầu hỗ trợ đang mở."
       permission="platform.business.view"
       icon={UserCheck}
-      items={['Workload', 'Trial follow-up', 'SLA theo nhân viên']}
+      items={['Tải công việc', 'Theo dõi dùng thử', 'SLA theo nhân viên']}
     />
   );
 }

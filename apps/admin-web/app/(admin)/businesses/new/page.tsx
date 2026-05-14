@@ -99,7 +99,7 @@ export default function NewBusinessPage() {
         </Link>
         <div>
           <h1 className="text-xl font-semibold text-foreground">Thêm doanh nghiệp</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Khởi tạo tenant mới trên nền tảng</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Khởi tạo doanh nghiệp mới trên nền tảng</p>
         </div>
       </div>
 
@@ -180,7 +180,7 @@ export default function NewBusinessPage() {
                 className={inputCls}
               >
                 <option value="starter">Starter</option>
-                <option value="standard">Standard</option>
+                <option value="standard">Tiêu chuẩn</option>
                 <option value="professional">Professional</option>
                 <option value="enterprise">Enterprise</option>
               </select>

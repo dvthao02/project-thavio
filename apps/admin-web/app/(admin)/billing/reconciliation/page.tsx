@@ -5,10 +5,10 @@ export default function ReconciliationPage() {
   return (
     <ModulePlaceholder
       title="Đối soát thanh toán"
-      description="Đối soát invoice, payment reference, renewal key và trạng thái quá hạn."
+      description="Đối soát hóa đơn, mã tham chiếu thanh toán, mã gia hạn và trạng thái quá hạn."
       permission="platform.billing.view"
       icon={Landmark}
-      items={['Bank transfer', 'Renewal key', 'Past due']}
+      items={['Chuyển khoản ngân hàng', 'Mã gia hạn', 'Quá hạn thanh toán']}
     />
   );
 }

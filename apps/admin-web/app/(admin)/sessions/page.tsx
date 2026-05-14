@@ -5,10 +5,10 @@ export default function SessionsPage() {
   return (
     <ModulePlaceholder
       title="Phiên đăng nhập"
-      description="Quản lý auth sessions, revoke phiên và theo dõi thiết bị đăng nhập platform."
+      description="Quản lý phiên xác thực, thu hồi phiên và theo dõi thiết bị đăng nhập nền tảng."
       permission="platform.account.view"
       icon={Monitor}
-      items={['Active sessions', 'Revoked sessions', 'IP/User agent']}
+      items={['Phiên đang hoạt động', 'Phiên đã thu hồi', 'IP và trình duyệt']}
     />
   );
 }

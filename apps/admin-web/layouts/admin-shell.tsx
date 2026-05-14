@@ -14,9 +14,9 @@ function AccountMenu() {
   const { user, clearAuth } = useAuthStore();
   const [open, setOpen] = useState(false);
 
-  const displayName = user?.fullName ?? user?.email ?? 'Admin';
+  const displayName = user?.fullName ?? user?.email ?? 'Quản trị viên';
   const initials = displayName.slice(0, 2);
-  const roleLabel = user?.isPlatformAdmin ? 'Platform Admin' : 'Quản trị viên';
+  const roleLabel = user?.isPlatformAdmin ? 'Quản trị nền tảng' : 'Quản trị viên';
 
   async function logout() {
     setOpen(false);
