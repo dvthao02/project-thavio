@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -45,7 +45,22 @@ const SCOPE_META: Record<string, { label: string; cls: string }> = {
   business: { label: 'Business', cls: 'bg-sky-500/10 text-sky-700' },
 };
 
+const SCOPE_TYPE_LABEL: Record<string, string> = {
+  platform: 'Platform',
+  business: 'Business',
+  store: 'Store',
+};
+
 const INPUT = 'w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30';
+
+function useEscapeKey(active: boolean, handler: () => void) {
+  useEffect(() => {
+    if (!active) return;
+    const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') handler(); };
+    document.addEventListener('keydown', fn);
+    return () => document.removeEventListener('keydown', fn);
+  }, [active, handler]);
+}
 
 export default function RoleDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -59,15 +74,20 @@ export default function RoleDetailPage() {
   const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set());
   const [permSearch, setPermSearch] = useState('');
 
+  useEscapeKey(editOpen, () => setEditOpen(false));
+  useEscapeKey(deleteConfirm, () => setDeleteConfirm(false));
+  useEscapeKey(addPermOpen, () => { setAddPermOpen(false); setSelectedPerms(new Set()); setPermSearch(''); });
+
   const { data: role, isLoading, isError } = useQuery<RoleDetail>({
     queryKey: ['rbac-role', id],
     queryFn: () => api.get(`/platform/rbac/roles/${id}`).then((r) => r.data),
   });
 
   const { data: allPermsData } = useQuery<{ total: number; modules: AllPermsModule[] }>({
-    queryKey: ['rbac-permissions'],
-    queryFn: () => api.get('/platform/rbac/permissions').then((r) => r.data),
-    enabled: addPermOpen,
+    queryKey: ['rbac-permissions', role?.roleScope ?? 'platform'],
+    queryFn: () =>
+      api.get('/platform/rbac/permissions', { params: { scope: role?.roleScope ?? 'platform' } }).then((r) => r.data),
+    enabled: addPermOpen && !!role,
   });
 
   const updateMut = useMutation({
@@ -247,6 +267,7 @@ export default function RoleDetailPage() {
                       )}
                       <div className="pointer-events-none absolute bottom-full left-0 mb-1 hidden rounded bg-foreground px-2 py-1 text-xs text-background whitespace-nowrap group-hover:block z-10">
                         {p.permissionKey}
+                        {p.description && <span className="block text-background/70">{p.description}</span>}
                       </div>
                     </div>
                   ))}
@@ -276,8 +297,14 @@ export default function RoleDetailPage() {
                   <p className="text-sm font-medium text-foreground">{acct.fullName}</p>
                   <p className="text-xs text-muted-foreground">{acct.email}</p>
                 </div>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                  {acct.scopeType}
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                  acct.scopeType === 'platform'
+                    ? 'bg-violet-500/10 text-violet-700'
+                    : acct.scopeType === 'business'
+                    ? 'bg-sky-500/10 text-sky-700'
+                    : 'bg-muted text-muted-foreground'
+                }`}>
+                  {SCOPE_TYPE_LABEL[acct.scopeType] ?? acct.scopeType}
                 </span>
               </div>
             ))}
@@ -408,7 +435,7 @@ export default function RoleDetailPage() {
                         {m.permissions.map((p) => (
                           <label
                             key={p.id}
-                            className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                            className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-1.5 hover:bg-muted/50"
                           >
                             <input
                               type="checkbox"
@@ -421,11 +448,14 @@ export default function RoleDetailPage() {
                                   return next;
                                 });
                               }}
-                              className="rounded"
+                              className="mt-0.5 rounded"
                             />
                             <div className="min-w-0">
                               <p className="text-sm font-medium text-foreground">{p.permissionName}</p>
                               <code className="text-xs text-muted-foreground">{p.permissionKey}</code>
+                              {p.description && (
+                                <p className="mt-0.5 text-xs text-muted-foreground/70 line-clamp-1">{p.description}</p>
+                              )}
                             </div>
                           </label>
                         ))}

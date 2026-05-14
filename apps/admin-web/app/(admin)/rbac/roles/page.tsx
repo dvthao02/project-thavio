@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Building2, ChevronRight, Loader2, Plus, Search, ShieldCheck, Users, X } from 'lucide-react';
@@ -59,6 +59,13 @@ export default function RolesPage() {
   const [permSearch, setPermSearch] = useState('');
   const qc = useQueryClient();
 
+  useEffect(() => {
+    if (!createOpen) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') closeCreate(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [createOpen]);
+
   const { data: roles = [], isLoading, isError } = useQuery<Role[]>({
     queryKey: ['rbac-roles'],
     queryFn: () => api.get('/platform/rbac/roles').then((r) => r.data),
@@ -116,11 +123,8 @@ export default function RolesPage() {
     const allSelected = modulePerms.every((p) => selectedPerms.has(p.id));
     setSelectedPerms((prev) => {
       const next = new Set(prev);
-      if (allSelected) {
-        modulePerms.forEach((p) => next.delete(p.id));
-      } else {
-        modulePerms.forEach((p) => next.add(p.id));
-      }
+      if (allSelected) modulePerms.forEach((p) => next.delete(p.id));
+      else modulePerms.forEach((p) => next.add(p.id));
       return next;
     });
   };
@@ -256,15 +260,21 @@ export default function RolesPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-1.5 text-sm">
+                      <div className="group/tip relative inline-flex items-center gap-1.5 text-sm">
                         <ShieldCheck size={14} className="text-muted-foreground" />
                         <span className="font-medium">{role.permissionCount}</span>
+                        <div className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 hidden group-hover/tip:block whitespace-nowrap rounded-md bg-popover border border-border px-2.5 py-1.5 text-xs text-popover-foreground shadow-md z-10">
+                          {role.permissionCount} quyền được gán
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-1.5 text-sm">
+                      <div className="group/tip relative inline-flex items-center gap-1.5 text-sm">
                         <Users size={14} className="text-muted-foreground" />
                         <span className="font-medium">{role.accountCount}</span>
+                        <div className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 hidden group-hover/tip:block whitespace-nowrap rounded-md bg-popover border border-border px-2.5 py-1.5 text-xs text-popover-foreground shadow-md z-10">
+                          {role.accountCount} tài khoản được gán vai trò này
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3.5 text-right">
@@ -284,11 +294,10 @@ export default function RolesPage() {
         </table>
       </div>
 
-      {/* Create modal — 2 columns */}
+      {/* Create modal */}
       {createOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="flex w-full max-w-3xl flex-col rounded-lg border border-border bg-background shadow-xl" style={{ maxHeight: '90vh' }}>
-            {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h3 className="text-base font-semibold text-foreground">Tạo vai trò mới</h3>
               <button onClick={closeCreate} className="text-muted-foreground hover:text-foreground">
@@ -296,7 +305,6 @@ export default function RolesPage() {
               </button>
             </div>
 
-            {/* Body */}
             <div className="flex min-h-0 flex-1 overflow-hidden">
               {/* Left: role info */}
               <div className="w-80 shrink-0 overflow-y-auto border-r border-border p-6">
@@ -391,7 +399,6 @@ export default function RolesPage() {
                         const someChecked = !allChecked && m.permissions.some((p) => selectedPerms.has(p.id));
                         return (
                           <div key={m.moduleKey}>
-                            {/* Module header with select-all */}
                             <label className="flex cursor-pointer items-center gap-2.5 rounded-md bg-muted/50 px-2.5 py-2">
                               <input
                                 type="checkbox"
@@ -407,7 +414,6 @@ export default function RolesPage() {
                                 {m.permissions.filter((p) => selectedPerms.has(p.id)).length}/{m.permissions.length}
                               </span>
                             </label>
-                            {/* Individual permissions */}
                             <div className="ml-4 mt-1 space-y-0.5">
                               {m.permissions.map((p) => (
                                 <label
@@ -436,7 +442,6 @@ export default function RolesPage() {
               </div>
             </div>
 
-            {/* Footer */}
             <div className="flex items-center justify-between border-t border-border px-6 py-4">
               {createMut.isError ? (
                 <p className="text-xs text-destructive">
