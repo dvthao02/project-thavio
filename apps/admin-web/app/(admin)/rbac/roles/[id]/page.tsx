@@ -35,7 +35,7 @@ interface RoleDetail {
 
 const SCOPE_META: Record<string, { label: string; cls: string }> = {
   platform: { label: 'Platform', cls: 'bg-violet-500/10 text-violet-700' },
-  tenant: { label: 'Tenant', cls: 'bg-sky-500/10 text-sky-700' },
+  business: { label: 'Business', cls: 'bg-sky-500/10 text-sky-700' },
 };
 
 export default function RoleDetailPage() {

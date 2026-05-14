@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { businessesInPlatform, billingEventsInPlatform, webhookSubscriptionsInPlatform, accountsInPlatform, accountRoleBindingsInPlatform, rolesInPlatform, permissionsInPlatform, rolePermissionsInPlatform, subscriptionPlansInPlatform, planLimitsInPlatform, platformInvoicesInPlatform, platformInvoiceLinesInPlatform, authSessionsInPlatform, deviceIdentitiesInPlatform, accountBusinessesInPlatform, accountBranchAccessInPlatform, businessBranchesInPlatform, platformPaymentsInPlatform, usageBillingItemsInPlatform, webhookEndpointsInPlatform, webhookDeliveryLogsInPlatform, supportTicketsInPlatform, supportTicketMessagesInPlatform, impersonationSessionsInPlatform, platformAnnouncementsInPlatform, systemSettingsInPlatform, businessModulesInPlatform, businessSubscriptionsInPlatform, businessUsageCountersInPlatform, businessUsageDailyInPlatform, sessionLimitsInPlatform } from "./schema";
+import { businessesInPlatform, billingEventsInPlatform, webhookSubscriptionsInPlatform, permissionsInPlatform, rolePermissionsInPlatform, rolesInPlatform, subscriptionPlansInPlatform, planLimitsInPlatform, platformInvoicesInPlatform, platformInvoiceLinesInPlatform, accountsInPlatform, authSessionsInPlatform, deviceIdentitiesInPlatform, accountBusinessesInPlatform, accountBranchAccessInPlatform, businessBranchesInPlatform, platformPaymentsInPlatform, usageBillingItemsInPlatform, webhookEndpointsInPlatform, webhookDeliveryLogsInPlatform, supportTicketsInPlatform, supportTicketMessagesInPlatform, impersonationSessionsInPlatform, platformAnnouncementsInPlatform, systemSettingsInPlatform, businessModulesInPlatform, businessSubscriptionsInPlatform, businessUsageCountersInPlatform, businessUsageDailyInPlatform, sessionLimitsInPlatform, accountRoleBindingsInPlatform } from "./schema";
 
 export const billingEventsInPlatformRelations = relations(billingEventsInPlatform, ({one}) => ({
 	businessesInPlatform: one(businessesInPlatform, {
@@ -31,40 +31,6 @@ export const webhookSubscriptionsInPlatformRelations = relations(webhookSubscrip
 	}),
 }));
 
-export const accountRoleBindingsInPlatformRelations = relations(accountRoleBindingsInPlatform, ({one}) => ({
-	accountsInPlatform: one(accountsInPlatform, {
-		fields: [accountRoleBindingsInPlatform.accountId],
-		references: [accountsInPlatform.id]
-	}),
-	rolesInPlatform: one(rolesInPlatform, {
-		fields: [accountRoleBindingsInPlatform.roleId],
-		references: [rolesInPlatform.id]
-	}),
-}));
-
-export const accountsInPlatformRelations = relations(accountsInPlatform, ({many}) => ({
-	accountRoleBindingsInPlatforms: many(accountRoleBindingsInPlatform),
-	authSessionsInPlatforms: many(authSessionsInPlatform),
-	supportTicketsInPlatforms_assignedTo: many(supportTicketsInPlatform, {
-		relationName: "supportTicketsInPlatform_assignedTo_accountsInPlatform_id"
-	}),
-	supportTicketsInPlatforms_openedBy: many(supportTicketsInPlatform, {
-		relationName: "supportTicketsInPlatform_openedBy_accountsInPlatform_id"
-	}),
-	supportTicketMessagesInPlatforms: many(supportTicketMessagesInPlatform),
-	impersonationSessionsInPlatforms: many(impersonationSessionsInPlatform),
-	platformAnnouncementsInPlatforms: many(platformAnnouncementsInPlatform),
-	systemSettingsInPlatforms: many(systemSettingsInPlatform),
-	businessModulesInPlatforms: many(businessModulesInPlatform),
-	accountBusinessesInPlatforms: many(accountBusinessesInPlatform),
-	sessionLimitsInPlatforms: many(sessionLimitsInPlatform),
-}));
-
-export const rolesInPlatformRelations = relations(rolesInPlatform, ({many}) => ({
-	accountRoleBindingsInPlatforms: many(accountRoleBindingsInPlatform),
-	rolePermissionsInPlatforms: many(rolePermissionsInPlatform),
-}));
-
 export const rolePermissionsInPlatformRelations = relations(rolePermissionsInPlatform, ({one}) => ({
 	permissionsInPlatform: one(permissionsInPlatform, {
 		fields: [rolePermissionsInPlatform.permissionId],
@@ -78,6 +44,11 @@ export const rolePermissionsInPlatformRelations = relations(rolePermissionsInPla
 
 export const permissionsInPlatformRelations = relations(permissionsInPlatform, ({many}) => ({
 	rolePermissionsInPlatforms: many(rolePermissionsInPlatform),
+}));
+
+export const rolesInPlatformRelations = relations(rolesInPlatform, ({many}) => ({
+	rolePermissionsInPlatforms: many(rolePermissionsInPlatform),
+	accountRoleBindingsInPlatforms: many(accountRoleBindingsInPlatform),
 }));
 
 export const planLimitsInPlatformRelations = relations(planLimitsInPlatform, ({one}) => ({
@@ -118,6 +89,24 @@ export const authSessionsInPlatformRelations = relations(authSessionsInPlatform,
 		fields: [authSessionsInPlatform.deviceIdentityId],
 		references: [deviceIdentitiesInPlatform.id]
 	}),
+}));
+
+export const accountsInPlatformRelations = relations(accountsInPlatform, ({many}) => ({
+	authSessionsInPlatforms: many(authSessionsInPlatform),
+	supportTicketsInPlatforms_assignedTo: many(supportTicketsInPlatform, {
+		relationName: "supportTicketsInPlatform_assignedTo_accountsInPlatform_id"
+	}),
+	supportTicketsInPlatforms_openedBy: many(supportTicketsInPlatform, {
+		relationName: "supportTicketsInPlatform_openedBy_accountsInPlatform_id"
+	}),
+	supportTicketMessagesInPlatforms: many(supportTicketMessagesInPlatform),
+	impersonationSessionsInPlatforms: many(impersonationSessionsInPlatform),
+	platformAnnouncementsInPlatforms: many(platformAnnouncementsInPlatform),
+	systemSettingsInPlatforms: many(systemSettingsInPlatform),
+	businessModulesInPlatforms: many(businessModulesInPlatform),
+	accountBusinessesInPlatforms: many(accountBusinessesInPlatform),
+	sessionLimitsInPlatforms: many(sessionLimitsInPlatform),
+	accountRoleBindingsInPlatforms: many(accountRoleBindingsInPlatform),
 }));
 
 export const deviceIdentitiesInPlatformRelations = relations(deviceIdentitiesInPlatform, ({many}) => ({
@@ -287,5 +276,16 @@ export const sessionLimitsInPlatformRelations = relations(sessionLimitsInPlatfor
 	accountsInPlatform: one(accountsInPlatform, {
 		fields: [sessionLimitsInPlatform.accountId],
 		references: [accountsInPlatform.id]
+	}),
+}));
+
+export const accountRoleBindingsInPlatformRelations = relations(accountRoleBindingsInPlatform, ({one}) => ({
+	accountsInPlatform: one(accountsInPlatform, {
+		fields: [accountRoleBindingsInPlatform.accountId],
+		references: [accountsInPlatform.id]
+	}),
+	rolesInPlatform: one(rolesInPlatform, {
+		fields: [accountRoleBindingsInPlatform.roleId],
+		references: [rolesInPlatform.id]
 	}),
 }));

@@ -126,7 +126,7 @@ export const platformAuditLogInPlatform = platform.table("platform_audit_log", {
 	tableName: varchar("table_name", { length: 80 }).notNull(),
 	operation: varchar({ length: 10 }).notNull(),
 	recordId: uuid("record_id"),
-	changedBy: text("changed_by").default(sql`CURRENT_USER`),
+	changedBy: text("changed_by").default(CURRENT_USER),
 	oldData: jsonb("old_data"),
 	newData: jsonb("new_data"),
 	changedFields: text("changed_fields").array(),
@@ -153,45 +153,6 @@ export const webhookSubscriptionsInPlatform = platform.table("webhook_subscripti
 			name: "webhook_subscriptions_business_id_fkey"
 		}).onDelete("cascade"),
 	check("webhook_subscriptions_business_id_not_null", sql`business_id IS NOT NULL`),
-]);
-
-export const accountRoleBindingsInPlatform = platform.table("account_role_bindings", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	accountId: uuid("account_id").notNull(),
-	roleId: uuid("role_id").notNull(),
-	scopeType: varchar("scope_type", { length: 20 }).notNull(),
-	scopeId: uuid("scope_id"),
-	supportGrantUntil: timestamp("support_grant_until", { withTimezone: true, mode: 'string' }),
-	grantedByAccountId: uuid("granted_by_account_id"),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	foreignKey({
-			columns: [table.accountId],
-			foreignColumns: [accountsInPlatform.id],
-			name: "fk_arb_account"
-		}),
-	foreignKey({
-			columns: [table.roleId],
-			foreignColumns: [rolesInPlatform.id],
-			name: "fk_arb_role"
-		}),
-	check("chk_arb_scope", sql`(scope_type)::text = ANY (ARRAY['platform'::text, 'tenant'::text, 'store'::text])`),
-]);
-
-export const rolesInPlatform = platform.table("roles", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	roleKey: varchar("role_key", { length: 100 }).notNull(),
-	roleName: varchar("role_name", { length: 150 }).notNull(),
-	description: text(),
-	roleScope: varchar("role_scope", { length: 20 }).notNull(),
-	isSystem: boolean("is_system").default(false).notNull(),
-	sortOrder: integer("sort_order").default(900).notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	unique("roles_role_key_key").on(table.roleKey),
-	check("chk_platform_roles_scope", sql`lower((role_scope)::text) = ANY (ARRAY['platform'::text, 'tenant'::text])`),
 ]);
 
 export const rolePermissionsInPlatform = platform.table("role_permissions", {
@@ -868,15 +829,54 @@ export const sessionLimitsInPlatform = platform.table("session_limits", {
 			name: "session_limits_account_id_fkey"
 		}),
 ]);
+
+export const rolesInPlatform = platform.table("roles", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	roleKey: varchar("role_key", { length: 100 }).notNull(),
+	roleName: varchar("role_name", { length: 150 }).notNull(),
+	description: text(),
+	roleScope: varchar("role_scope", { length: 20 }).notNull(),
+	isSystem: boolean("is_system").default(false).notNull(),
+	sortOrder: integer("sort_order").default(900).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("roles_role_key_key").on(table.roleKey),
+	check("chk_platform_roles_scope", sql`lower((role_scope)::text) = ANY (ARRAY['platform'::text, 'business'::text])`),
+]);
+
+export const accountRoleBindingsInPlatform = platform.table("account_role_bindings", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	accountId: uuid("account_id").notNull(),
+	roleId: uuid("role_id").notNull(),
+	scopeType: varchar("scope_type", { length: 20 }).notNull(),
+	scopeId: uuid("scope_id"),
+	supportGrantUntil: timestamp("support_grant_until", { withTimezone: true, mode: 'string' }),
+	grantedByAccountId: uuid("granted_by_account_id"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.accountId],
+			foreignColumns: [accountsInPlatform.id],
+			name: "fk_arb_account"
+		}),
+	foreignKey({
+			columns: [table.roleId],
+			foreignColumns: [rolesInPlatform.id],
+			name: "fk_arb_role"
+		}),
+	check("chk_arb_scope", sql`(scope_type)::text = ANY (ARRAY['platform'::text, 'business'::text, 'store'::text])`),
+]);
 export const pgStatStatementsInfoInPlatform = platform.view("pg_stat_statements_info", {	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	dealloc: bigint({ mode: "number" }),
 	statsReset: timestamp("stats_reset", { withTimezone: true, mode: 'string' }),
 }).as(sql`SELECT dealloc, stats_reset FROM platform.pg_stat_statements_info() pg_stat_statements_info(dealloc, stats_reset)`);
 
 export const pgStatStatementsInPlatform = platform.view("pg_stat_statements", {	// TODO: failed to parse database type 'oid'
-	userid: integer("userid"),
+	userid: unknown("userid"),
 	// TODO: failed to parse database type 'oid'
-	dbid: integer("dbid"),
+	dbid: unknown("dbid"),
 	toplevel: boolean(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	queryid: bigint({ mode: "number" }),

@@ -21,11 +21,11 @@ interface Role {
 
 const SCOPE_META: Record<string, { label: string; cls: string }> = {
   platform: { label: 'Platform', cls: 'bg-violet-500/10 text-violet-700' },
-  tenant: { label: 'Tenant', cls: 'bg-sky-500/10 text-sky-700' },
+  business: { label: 'Business', cls: 'bg-sky-500/10 text-sky-700' },
 };
 
 export default function RolesPage() {
-  const [scope, setScope] = useState<'all' | 'platform' | 'tenant'>('all');
+  const [scope, setScope] = useState<'all' | 'platform' | 'business'>('all');
 
   const { data: roles = [], isLoading, isError } = useQuery<Role[]>({
     queryKey: ['rbac-roles'],
@@ -34,7 +34,7 @@ export default function RolesPage() {
 
   const filtered = scope === 'all' ? roles : roles.filter((r) => r.roleScope === scope);
   const platformCount = roles.filter((r) => r.roleScope === 'platform').length;
-  const tenantCount = roles.filter((r) => r.roleScope === 'tenant').length;
+  const tenantCount = roles.filter((r) => r.roleScope === 'business').length;
 
   return (
     <div className="space-y-5">
@@ -70,12 +70,12 @@ export default function RolesPage() {
             <Building2 size={17} />
           </div>
           <p className="text-2xl font-bold text-foreground">{tenantCount}</p>
-          <p className="mt-1 text-sm text-muted-foreground">Vai trò Tenant</p>
+          <p className="mt-1 text-sm text-muted-foreground">Vai trò Business</p>
         </div>
       </div>
 
       <div className="inline-flex rounded-md border border-border bg-card p-1">
-        {(['all', 'platform', 'tenant'] as const).map((key) => (
+        {(['all', 'platform', 'business'] as const).map((key) => (
           <button
             key={key}
             type="button"
@@ -84,7 +84,7 @@ export default function RolesPage() {
               scope === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
             }`}
           >
-            {key === 'all' ? 'Tất cả' : key === 'platform' ? 'Platform' : 'Tenant'}
+            {key === 'all' ? 'Tất cả' : key === 'platform' ? 'Platform' : 'Business'}
           </button>
         ))}
       </div>
