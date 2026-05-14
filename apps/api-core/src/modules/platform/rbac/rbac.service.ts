@@ -94,30 +94,31 @@ export class RbacService {
   }
 
   async listPermissions(scope: 'platform' | 'business' = 'platform') {
-    let rows: { id: string; permissionKey: string; permissionName: string; moduleKey: string; description: string | null }[];
+    type PermRow = { id: string; permissionKey: string; permissionName: string; moduleKey: string; description: string | null; roleCount: number };
+    let rows: PermRow[];
 
     if (scope === 'business') {
       const result = await this.db.execute(sql.raw(
         `SELECT id::text, permission_key AS "permissionKey", permission_name AS "permissionName",
-                module_key AS "moduleKey", NULL AS description
+                module_key AS "moduleKey", NULL AS description, 0 AS "roleCount"
          FROM business_template.permissions
          ORDER BY module_key, permission_key`,
       ));
-      rows = result.rows as typeof rows;
+      rows = result.rows as PermRow[];
     } else {
-      rows = await this.db
-        .select({
-          id: permissions.id,
-          permissionKey: permissions.permissionKey,
-          permissionName: permissions.permissionName,
-          moduleKey: permissions.moduleKey,
-          description: permissions.description,
-        })
-        .from(permissions)
-        .orderBy(permissions.moduleKey, permissions.permissionKey);
+      const result = await this.db.execute(sql.raw(
+        `SELECT p.id::text, p.permission_key AS "permissionKey", p.permission_name AS "permissionName",
+                p.module_key AS "moduleKey", p.description,
+                COUNT(rp.role_id)::int AS "roleCount"
+         FROM platform.permissions p
+         LEFT JOIN platform.role_permissions rp ON rp.permission_id = p.id
+         GROUP BY p.id
+         ORDER BY p.module_key, p.permission_key`,
+      ));
+      rows = result.rows as PermRow[];
     }
 
-    const grouped: Record<string, typeof rows> = {};
+    const grouped: Record<string, PermRow[]> = {};
     for (const row of rows) {
       if (!grouped[row.moduleKey]) grouped[row.moduleKey] = [];
       grouped[row.moduleKey].push(row);
