@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, count, inArray } from 'drizzle-orm';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { eq, count, inArray, and } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { roles, permissions, rolePermissions, accountRoleBindings, accounts } from '@schema/platform';
 
@@ -119,5 +119,80 @@ export class RbacService {
         permissions: items,
       })),
     };
+  }
+
+  async createRole(dto: { roleKey: string; roleName: string; description?: string; roleScope: string }) {
+    const [existing] = await this.db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(eq(roles.roleKey, dto.roleKey))
+      .limit(1);
+    if (existing) throw new ConflictException('Role key already exists');
+
+    const [created] = await this.db
+      .insert(roles)
+      .values({
+        roleKey: dto.roleKey,
+        roleName: dto.roleName,
+        description: dto.description ?? null,
+        roleScope: dto.roleScope,
+        isSystem: false,
+      })
+      .returning({ id: roles.id, roleKey: roles.roleKey, roleName: roles.roleName });
+
+    return created;
+  }
+
+  async updateRole(id: string, dto: { roleName?: string; description?: string }) {
+    const [role] = await this.db.select({ id: roles.id, isSystem: roles.isSystem }).from(roles).where(eq(roles.id, id)).limit(1);
+    if (!role) throw new NotFoundException('Role not found');
+
+    const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    if (dto.roleName !== undefined) patch.roleName = dto.roleName;
+    if (dto.description !== undefined) patch.description = dto.description;
+
+    await this.db.update(roles).set(patch).where(eq(roles.id, id));
+    return this.getRole(id);
+  }
+
+  async deleteRole(id: string) {
+    const [role] = await this.db.select({ id: roles.id, isSystem: roles.isSystem }).from(roles).where(eq(roles.id, id)).limit(1);
+    if (!role) throw new NotFoundException('Role not found');
+    if (role.isSystem) throw new BadRequestException('Cannot delete system role');
+
+    await this.db.delete(rolePermissions).where(eq(rolePermissions.roleId, id));
+    await this.db.delete(accountRoleBindings).where(eq(accountRoleBindings.roleId, id));
+    await this.db.delete(roles).where(eq(roles.id, id));
+    return { success: true };
+  }
+
+  async addPermission(roleId: string, permissionId: string) {
+    const [role] = await this.db.select({ id: roles.id }).from(roles).where(eq(roles.id, roleId)).limit(1);
+    if (!role) throw new NotFoundException('Role not found');
+
+    const [perm] = await this.db.select({ id: permissions.id }).from(permissions).where(eq(permissions.id, permissionId)).limit(1);
+    if (!perm) throw new NotFoundException('Permission not found');
+
+    const [existing] = await this.db
+      .select({ id: rolePermissions.id })
+      .from(rolePermissions)
+      .where(and(eq(rolePermissions.roleId, roleId), eq(rolePermissions.permissionId, permissionId)))
+      .limit(1);
+    if (existing) throw new ConflictException('Permission already assigned to this role');
+
+    await this.db.insert(rolePermissions).values({ roleId, permissionId });
+    return { success: true };
+  }
+
+  async removePermission(roleId: string, permissionId: string) {
+    const [existing] = await this.db
+      .select({ id: rolePermissions.id })
+      .from(rolePermissions)
+      .where(and(eq(rolePermissions.roleId, roleId), eq(rolePermissions.permissionId, permissionId)))
+      .limit(1);
+    if (!existing) throw new NotFoundException('Permission not assigned to this role');
+
+    await this.db.delete(rolePermissions).where(and(eq(rolePermissions.roleId, roleId), eq(rolePermissions.permissionId, permissionId)));
+    return { success: true };
   }
 }
