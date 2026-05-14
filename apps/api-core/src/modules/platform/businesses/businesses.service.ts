@@ -385,7 +385,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async updateStatus(id: string, dto: UpdateStatusDto) {
+  async updateStatus(id: string, dto: UpdateStatusDto, actorId?: string) {
     const [business] = await this.platformDb.db
       .select({ id: businesses.id })
       .from(businesses)
@@ -393,10 +393,14 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       .limit(1);
     if (!business) throw new NotFoundException('Business not found');
 
-    await this.platformDb.db
-      .update(businesses)
-      .set({ status: dto.status, updatedAt: new Date().toISOString() })
-      .where(eq(businesses.id, id));
+    const doUpdate = (db: typeof this.platformDb.db) =>
+      db.update(businesses).set({ status: dto.status, updatedAt: new Date().toISOString() }).where(eq(businesses.id, id));
+
+    if (actorId) {
+      await this.platformDb.runWithActor(actorId, doUpdate);
+    } else {
+      await doUpdate(this.platformDb.db);
+    }
 
     return { id, status: dto.status };
   }

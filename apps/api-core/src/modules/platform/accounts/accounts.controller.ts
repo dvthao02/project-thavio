@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { z } from 'zod';
 import { AccountsService } from './accounts.service';
 import { CreateAccountSchema } from './dto/create-account.dto';
@@ -35,8 +36,8 @@ export class AccountsController {
 
   @RequirePermission('platform.account.lock')
   @Patch(':id/status')
-  updateStatus(@Param('id') id: string, @Body() body: unknown) {
+  updateStatus(@Param('id') id: string, @Body() body: unknown, @Req() req: Request & { platformUser?: any }) {
     const { status } = UpdateAccountStatusSchema.parse(body);
-    return this.accountsService.updateStatus(id, status);
+    return this.accountsService.updateStatus(id, status, req.platformUser?.sub);
   }
 }

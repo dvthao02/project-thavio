@@ -32,8 +32,8 @@ export class BusinessesController {
 
   @RequirePermission('platform.business.update')
   @Patch(':id/status')
-  updateStatus(@Param('id') id: string, @Body() body: unknown) {
+  updateStatus(@Param('id') id: string, @Body() body: unknown, @Req() req: Request & { platformUser?: any }) {
     const dto = UpdateStatusSchema.parse(body);
-    return this.businessesService.updateStatus(id, dto);
+    return this.businessesService.updateStatus(id, dto, req.platformUser?.sub);
   }
 }

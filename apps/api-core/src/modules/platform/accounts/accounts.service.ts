@@ -121,7 +121,7 @@ export class AccountsService {
     return created;
   }
 
-  async updateStatus(id: string, status: 'active' | 'locked' | 'disabled') {
+  async updateStatus(id: string, status: 'active' | 'locked' | 'disabled', actorId?: string) {
     const db = this.platformDb.db;
 
     const [account] = await db
@@ -131,10 +131,14 @@ export class AccountsService {
       .limit(1);
     if (!account) throw new NotFoundException('Account not found');
 
-    await db
-      .update(accounts)
-      .set({ status, updatedAt: new Date().toISOString() })
-      .where(eq(accounts.id, id));
+    const doUpdate = (tx: typeof db) =>
+      tx.update(accounts).set({ status, updatedAt: new Date().toISOString() }).where(eq(accounts.id, id));
+
+    if (actorId) {
+      await this.platformDb.runWithActor(actorId, doUpdate);
+    } else {
+      await doUpdate(db);
+    }
 
     return { id, status };
   }

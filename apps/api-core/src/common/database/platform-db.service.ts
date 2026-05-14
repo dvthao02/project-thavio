@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
 import * as schema from '@schema/platform';
 import { env } from '@config/env';
 
@@ -23,5 +24,12 @@ export class PlatformDbService implements OnModuleInit, OnModuleDestroy {
 
   get db() {
     return this._db;
+  }
+
+  async runWithActor<T>(accountId: string, fn: (db: typeof this._db) => Promise<T>): Promise<T> {
+    return this._db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT set_config('app.current_account_id', ${accountId}, true)`);
+      return fn(tx as unknown as typeof this._db);
+    });
   }
 }
