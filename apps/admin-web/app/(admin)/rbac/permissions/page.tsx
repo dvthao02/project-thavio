@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, KeyRound, Search, ShieldCheck, X, Crown, Info } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -30,6 +30,12 @@ interface RoleItem {
 type Scope = 'platform' | 'business';
 
 function PermissionRolesModal({ permission, onClose }: { permission: Permission; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
   const { data, isLoading } = useQuery<{ roles: RoleItem[] }>({
     queryKey: ['permission-roles', permission.id],
     queryFn: () => api.get(`/platform/rbac/permissions/${permission.id}/roles`).then((r) => r.data),
@@ -273,15 +279,25 @@ export default function PermissionsPage() {
                       )}
                     </div>
                     {scope === 'platform' && (
-                      <div className="shrink-0 mt-0.5">
+                      <div className="shrink-0 mt-0.5 group/badge relative">
                         {p.roleCount > 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                            {p.roleCount} vai trò
-                          </span>
+                          <>
+                            <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary cursor-default">
+                              {p.roleCount} vai trò
+                            </span>
+                            <div className="pointer-events-none absolute right-0 top-full mt-1.5 z-10 hidden group-hover/badge:block w-max max-w-[200px] rounded-md bg-popover border border-border px-2.5 py-1.5 text-xs text-popover-foreground shadow-md">
+                              {p.roleCount} role đang được gán quyền này
+                            </div>
+                          </>
                         ) : (
-                          <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
-                            Chưa gán
-                          </span>
+                          <>
+                            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 cursor-default">
+                              Chưa gán
+                            </span>
+                            <div className="pointer-events-none absolute right-0 top-full mt-1.5 z-10 hidden group-hover/badge:block w-max max-w-[200px] rounded-md bg-popover border border-border px-2.5 py-1.5 text-xs text-popover-foreground shadow-md">
+                              Chưa có role nào được gán quyền này
+                            </div>
+                          </>
                         )}
                       </div>
                     )}
