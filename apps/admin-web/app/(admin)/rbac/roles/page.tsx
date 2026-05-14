@@ -65,8 +65,8 @@ export default function RolesPage() {
   });
 
   const { data: allPermsData, isLoading: permsLoading } = useQuery<{ total: number; modules: PermModule[] }>({
-    queryKey: ['rbac-permissions'],
-    queryFn: () => api.get('/platform/rbac/permissions').then((r) => r.data),
+    queryKey: ['rbac-permissions', form.roleScope],
+    queryFn: () => api.get('/platform/rbac/permissions', { params: { scope: form.roleScope } }).then((r) => r.data),
     enabled: createOpen,
   });
 
@@ -319,7 +319,10 @@ export default function RolesPage() {
                     <select
                       className={INPUT}
                       value={form.roleScope}
-                      onChange={(e) => setForm((f) => ({ ...f, roleScope: e.target.value as 'platform' | 'business' }))}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, roleScope: e.target.value as 'platform' | 'business' }));
+                        setSelectedPerms(new Set());
+                      }}
                     >
                       <option value="platform">Platform</option>
                       <option value="business">Business</option>

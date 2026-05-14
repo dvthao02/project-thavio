@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { RbacService } from './rbac.service';
 import { RequirePermission } from '@decorators/require-permission.decorator';
@@ -70,7 +70,7 @@ export class RbacController {
 
   @Get('permissions')
   @RequirePermission('platform.role.view')
-  listPermissions() {
-    return this.rbacService.listPermissions();
+  listPermissions(@Query('scope') scope?: string) {
+    return this.rbacService.listPermissions(scope === 'business' ? 'business' : 'platform');
   }
 }

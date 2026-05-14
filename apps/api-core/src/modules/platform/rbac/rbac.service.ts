@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { eq, count, inArray, and } from 'drizzle-orm';
+import { eq, count, inArray, and, sql } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { roles, permissions, rolePermissions, accountRoleBindings, accounts } from '@schema/platform';
 
@@ -93,17 +93,29 @@ export class RbacService {
     };
   }
 
-  async listPermissions() {
-    const rows = await this.db
-      .select({
-        id: permissions.id,
-        permissionKey: permissions.permissionKey,
-        permissionName: permissions.permissionName,
-        moduleKey: permissions.moduleKey,
-        description: permissions.description,
-      })
-      .from(permissions)
-      .orderBy(permissions.moduleKey, permissions.permissionKey);
+  async listPermissions(scope: 'platform' | 'business' = 'platform') {
+    let rows: { id: string; permissionKey: string; permissionName: string; moduleKey: string; description: string | null }[];
+
+    if (scope === 'business') {
+      const result = await this.db.execute(sql.raw(
+        `SELECT id::text, permission_key AS "permissionKey", permission_name AS "permissionName",
+                module_key AS "moduleKey", NULL AS description
+         FROM business_template.permissions
+         ORDER BY module_key, permission_key`,
+      ));
+      rows = result.rows as typeof rows;
+    } else {
+      rows = await this.db
+        .select({
+          id: permissions.id,
+          permissionKey: permissions.permissionKey,
+          permissionName: permissions.permissionName,
+          moduleKey: permissions.moduleKey,
+          description: permissions.description,
+        })
+        .from(permissions)
+        .orderBy(permissions.moduleKey, permissions.permissionKey);
+    }
 
     const grouped: Record<string, typeof rows> = {};
     for (const row of rows) {
@@ -114,7 +126,7 @@ export class RbacService {
     return {
       total: rows.length,
       modules: Object.entries(grouped).map(([moduleKey, items]) => ({
-        moduleKey,
+        moduleKey: moduleKey.toUpperCase(),
         count: items.length,
         permissions: items,
       })),

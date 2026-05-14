@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+﻿import { Injectable } from '@nestjs/common';
 import { count, eq, desc, sql, gte, and, inArray, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { businesses, accounts, accountBusinesses } from '@schema/platform';
@@ -25,14 +25,14 @@ const FMT: Record<'day' | 'month', string> = {
 export class DashboardService {
   constructor(private readonly platformDb: PlatformDbService) {}
 
-  async getStats(period: Period = '30d', assignedAccountId?: string) {
+  async getStats(period: Period = '30d', assignedAccountId?: string, isFullAdmin = true) {
     const db = this.platformDb.db;
     const interval = INTERVAL[period];
     const groupBy = GROUP_BY[period];
     const fmt = FMT[groupBy];
     const since = sql`NOW() - INTERVAL ${sql.raw(`'${interval}'`)}`;
 
-    // When filtering by assignee, resolve their business IDs first
+    // When filtering by assignee (or scoping non-admin), resolve their business IDs
     let bizIds: string[] | undefined;
     if (assignedAccountId) {
       const rows = await db
@@ -44,6 +44,9 @@ export class DashboardService {
         ));
       bizIds = rows.map((r) => r.businessId).filter(Boolean) as string[];
     }
+
+    // For non-admin: scope account stats to current user only
+    const accountScopeId = isFullAdmin ? undefined : assignedAccountId;
 
     // Compose WHERE: optional biz-scope + optional extra condition
     const w = (...extra: (SQL | undefined)[]): SQL | undefined => {
@@ -88,9 +91,9 @@ export class DashboardService {
         w(eq(businesses.status, 'active'), gte(businesses.createdAt, sql`NOW() - INTERVAL '10 days'`))
       ),
       db.select({ total: count() }).from(businesses).where(w(gte(businesses.createdAt, since as any))),
-      db.select({ total: count() }).from(accounts),
-      db.select({ total: count() }).from(accounts).where(eq(accounts.status, 'locked')),
-      db.select({ total: count() }).from(accounts).where(gte(accounts.createdAt, since as any)),
+      db.select({ total: count() }).from(accounts).where(accountScopeId ? eq(accounts.id, accountScopeId) : undefined),
+      db.select({ total: count() }).from(accounts).where(accountScopeId ? and(eq(accounts.id, accountScopeId), eq(accounts.status, 'locked')) : eq(accounts.status, 'locked')),
+      db.select({ total: count() }).from(accounts).where(accountScopeId ? and(eq(accounts.id, accountScopeId), gte(accounts.createdAt, since as any)) : gte(accounts.createdAt, since as any)),
       db
         .select({
           id: businesses.id,
@@ -116,6 +119,7 @@ export class DashboardService {
           createdAt: accounts.createdAt,
         })
         .from(accounts)
+        .where(accountScopeId ? eq(accounts.id, accountScopeId) : undefined)
         .orderBy(desc(accounts.createdAt))
         .limit(6),
       // By plan
