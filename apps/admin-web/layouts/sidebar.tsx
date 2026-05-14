@@ -16,7 +16,6 @@ import {
   Menu,
   Monitor,
   Package,
-  PlusCircle,
   ReceiptText,
   RotateCcw,
   ShieldCheck,
@@ -55,7 +54,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Doanh nghiệp',
     items: [
       { href: '/businesses',            label: 'Danh sách doanh nghiệp', icon: Building2,   permission: 'platform.business.view' },
-      { href: '/businesses/new',        label: 'Tạo doanh nghiệp',       icon: PlusCircle,  permission: 'platform.business.create' },
       { href: '/subscriptions/trials',  label: 'Dùng thử & gia hạn',     icon: RotateCcw,   permission: 'platform.subscription.view' },
       { href: '/subscriptions/plans',   label: 'Gói dịch vụ',            icon: Package,     permission: 'platform.subscription.view' },
       { href: '/billing/invoices',      label: 'Hợp đồng & hóa đơn',     icon: ReceiptText, permission: 'platform.invoice.view' },
