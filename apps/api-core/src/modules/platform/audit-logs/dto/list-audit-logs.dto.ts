@@ -6,6 +6,7 @@ export const ListAuditLogsSchema = z.object({
   tableName: z.string().optional(),
   operation: z.enum(['INSERT', 'UPDATE', 'DELETE']).optional(),
   recordId: z.string().uuid().optional(),
+  search: z.string().optional(),
   from: z.string().datetime({ offset: true }).optional(),
   to: z.string().datetime({ offset: true }).optional(),
 });
