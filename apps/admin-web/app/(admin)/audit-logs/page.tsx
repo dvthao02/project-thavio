@@ -38,7 +38,8 @@ interface AuditLog {
   tableName: string;
   operation: Operation;
   recordId: string | null;
-  changedBy: string;
+  changedBy: string | null;
+  actorName: string | null;
   changedFields: string[] | null;
   oldData: Record<string, unknown> | null;
   newData: Record<string, unknown> | null;
@@ -653,7 +654,12 @@ export default function AuditLogsPage() {
                         {shortId(log.recordId)}
                       </code>
                     </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{log.changedBy || '-'}</td>
+                    <td className="px-4 py-3">
+                      <span className="block text-xs font-medium text-foreground">{log.actorName ?? log.changedBy ?? '-'}</span>
+                      {log.actorName && log.changedBy !== log.actorName && (
+                        <code className="block text-xs text-muted-foreground">{shortId(log.changedBy)}</code>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <FieldList fields={log.changedFields} />
                     </td>
@@ -791,7 +797,10 @@ export default function AuditLogsPage() {
             </div>
             <div>
               <p className="text-muted-foreground">Người đổi</p>
-              <p className="mt-1 font-medium text-foreground">{selectedLog.changedBy || '-'}</p>
+              <p className="mt-1 font-medium text-foreground">{selectedLog.actorName ?? selectedLog.changedBy ?? '-'}</p>
+              {selectedLog.actorName && selectedLog.changedBy !== selectedLog.actorName && (
+                <code className="mt-0.5 block text-xs text-muted-foreground">{shortId(selectedLog.changedBy)}</code>
+              )}
             </div>
             <div>
               <p className="text-muted-foreground">Trường thay đổi</p>

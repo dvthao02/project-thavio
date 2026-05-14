@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { desc, eq, gte, lte, and, count, sql, type SQL } from 'drizzle-orm';
+import { desc, eq, gte, lte, and, count, inArray, sql, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
-import { auditEvents, platformAuditLog } from '@schema/platform';
+import { accounts, auditEvents, platformAuditLog } from '@schema/platform';
 import type { ListAuditEventsDto } from './dto/list-audit-events.dto';
 import type { ListAuditLogsDto } from './dto/list-audit-logs.dto';
 
@@ -58,8 +58,23 @@ export class AuditLogsService {
       db.select({ total: count() }).from(platformAuditLog).where(where),
     ]);
 
+    // Resolve account names for changedBy values that are UUIDs
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const actorIds = [...new Set(rows.map((r) => r.changedBy).filter((v): v is string => !!v && UUID_RE.test(v)))];
+    const actorMap = new Map<string, string>();
+    if (actorIds.length > 0) {
+      const actorRows = await db
+        .select({ id: accounts.id, fullName: accounts.fullName, username: accounts.username })
+        .from(accounts)
+        .where(inArray(accounts.id, actorIds));
+      for (const a of actorRows) {
+        actorMap.set(a.id, a.fullName ?? a.username);
+      }
+    }
+
     const data = rows.map((r) => ({
       ...r,
+      actorName: r.changedBy ? (actorMap.get(r.changedBy) ?? r.changedBy) : null,
       oldData: stripSensitive(r.oldData as Record<string, unknown> | null),
       newData: stripSensitive(r.newData as Record<string, unknown> | null),
     }));
