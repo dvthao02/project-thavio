@@ -19,6 +19,31 @@ import type { CreateBusinessDto } from './dto/create-business.dto';
 import type { ListBusinessesDto } from './dto/list-businesses.dto';
 import type { UpdateStatusDto } from './dto/update-status.dto';
 
+const TRIAL_DAYS = 10;
+
+function deriveSubscriptionStatus(
+  businessStatus: string | null,
+  createdAt: string | null,
+  subStatus: string | null,
+  periodEnd: string | null,
+): string {
+  if (businessStatus === 'suspended') return 'suspended';
+  if (businessStatus === 'inactive') return 'cancelled';
+  if (businessStatus === 'pending') return 'pending';
+
+  if (subStatus === 'cancelled') return 'cancelled';
+  if (subStatus === 'inactive') return 'cancelled';
+  if (subStatus === 'pending') return 'pending';
+
+  // DB status='active' — check if expired first
+  if (periodEnd && new Date(periodEnd) < new Date()) return 'past_due';
+
+  // Within trial window?
+  const msPerDay = 86_400_000;
+  const age = createdAt ? (Date.now() - new Date(createdAt).getTime()) / msPerDay : Infinity;
+  return age <= TRIAL_DAYS ? 'trialing' : 'active';
+}
+
 @Injectable()
 export class BusinessesService implements OnModuleInit, OnModuleDestroy {
   private adminPool: Pool;
@@ -48,6 +73,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
           ilike(businesses.legalName!, `%${search}%`),
           ilike(businesses.businessCode!, `%${search}%`),
           ilike(businesses.brandName!, `%${search}%`),
+          ilike(businesses.email!, `%${search}%`),
         ) as SQL,
       );
     }
@@ -67,8 +93,11 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
           phone: businesses.phone,
           timezoneName: businesses.timezoneName,
           createdAt: businesses.createdAt,
+          _subStatus: businessSubscriptions.status,
+          _subPeriodEnd: businessSubscriptions.currentPeriodEnd,
         })
         .from(businesses)
+        .leftJoin(businessSubscriptions, eq(businessSubscriptions.businessId, businesses.id))
         .where(whereClause)
         .orderBy(desc(businesses.createdAt))
         .limit(limit)
@@ -79,10 +108,89 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         .where(whereClause),
     ]);
 
+    if (rows.length === 0) {
+      return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
+    }
+
+    const businessIds = rows.map((r) => r.id);
+    const schemaTargets = rows.map((r) => ({ id: r.id, schemaName: r.schemaName }));
+
+    const [assignedAccountMap, firstStoreMap] = await Promise.all([
+      this.fetchAssignedAccounts(businessIds),
+      this.fetchFirstStores(schemaTargets),
+    ]);
+
+    const data = rows.map(({ _subStatus, _subPeriodEnd, ...row }) => {
+      const subscriptionStatus = deriveSubscriptionStatus(row.status, row.createdAt, _subStatus, _subPeriodEnd);
+      const trialEndsAt = row.createdAt
+        ? new Date(new Date(row.createdAt).getTime() + TRIAL_DAYS * 86_400_000).toISOString()
+        : null;
+      const trialDaysLeft =
+        subscriptionStatus === 'trialing' && trialEndsAt
+          ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86_400_000))
+          : null;
+
+      return {
+        ...row,
+        subscriptionStatus,
+        trialStartedAt: row.createdAt,
+        trialEndsAt,
+        trialDaysLeft,
+        assignedAccount: assignedAccountMap.get(row.id) ?? null,
+        firstStore: firstStoreMap.get(row.id) ?? null,
+      };
+    });
+
     return {
-      data: rows,
+      data,
       meta: { page, limit, total: Number(total), totalPages: Math.ceil(Number(total) / limit) },
     };
+  }
+
+  private async fetchAssignedAccounts(
+    businessIds: string[],
+  ): Promise<Map<string, { id: string; fullName: string; email: string | null }>> {
+    const { rows } = await this.adminPool.query<{
+      business_id: string;
+      id: string;
+      full_name: string;
+      email: string | null;
+    }>(
+      `SELECT DISTINCT ON (ab.business_id)
+         ab.business_id, a.id, a.full_name, a.email
+       FROM platform.account_businesses ab
+       JOIN platform.accounts a ON a.id = ab.account_id
+       WHERE ab.business_id = ANY($1) AND ab.status = 'active'
+       ORDER BY ab.business_id,
+         CASE ab.access_level WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END`,
+      [businessIds],
+    );
+    const map = new Map<string, { id: string; fullName: string; email: string | null }>();
+    for (const r of rows) {
+      map.set(r.business_id, { id: r.id, fullName: r.full_name, email: r.email });
+    }
+    return map;
+  }
+
+  private async fetchFirstStores(
+    targets: { id: string; schemaName: string | null }[],
+  ): Promise<Map<string, { storeCode: string; storeName: string }>> {
+    const map = new Map<string, { storeCode: string; storeName: string }>();
+    await Promise.all(
+      targets.map(async ({ id, schemaName }) => {
+        if (!schemaName) return;
+        try {
+          const { rows } = await this.adminPool.query<{ storeCode: string; storeName: string }>(
+            `SELECT store_code AS "storeCode", store_name AS "storeName"
+             FROM "${schemaName}".stores ORDER BY created_at LIMIT 1`,
+          );
+          if (rows[0]) map.set(id, rows[0]);
+        } catch {
+          // schema not provisioned yet
+        }
+      }),
+    );
+    return map;
   }
 
   async getOne(id: string) {

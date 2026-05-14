@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -89,22 +89,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const router = useRouter();
   const { user, clearAuth } = useAuthStore();
 
-  const defaultOpen = useMemo(() => {
-    const entries = NAV_GROUPS.map((group) => [
-      group.label,
-      group.items.some((item) => pathname === item.href || pathname.startsWith(item.href + '/')),
-    ]);
-    return Object.fromEntries(entries) as Record<string, boolean>;
-  }, [pathname]);
-
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => ({
-    ...Object.fromEntries(NAV_GROUPS.map((group) => [group.label, true])),
-    ...defaultOpen,
-  }));
-
-  useEffect(() => {
-    setOpenGroups((current) => ({ ...current, ...defaultOpen }));
-  }, [defaultOpen]);
+  // Track only manual collapses. Active group is always shown regardless.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   function logout() {
     clearAuth();
@@ -148,8 +134,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       <nav className={cn('flex-1 overflow-y-auto py-4', collapsed ? 'px-2 space-y-2' : 'px-3 space-y-4')}>
         {NAV_GROUPS.map((group) => {
-          const groupOpen = collapsed ? true : openGroups[group.label];
           const groupActive = group.items.some((item) => pathname === item.href || pathname.startsWith(item.href + '/'));
+          // Always open if active (so navigating to a collapsed group's child auto-expands it)
+          const groupOpen = collapsed ? true : ((openGroups[group.label] ?? true) || groupActive);
 
           return (
             <div key={group.label}>

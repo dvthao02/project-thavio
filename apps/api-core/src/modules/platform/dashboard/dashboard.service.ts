@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { count, eq, desc, sql, gte } from 'drizzle-orm';
+import { count, eq, desc, sql, gte, and } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { businesses, accounts } from '@schema/platform';
 
@@ -53,7 +53,9 @@ export class DashboardService {
       db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'pending')),
       db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'suspended')),
       db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'inactive')),
-      db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'trial')),
+      db.select({ total: count() }).from(businesses).where(
+        and(eq(businesses.status, 'active'), gte(businesses.createdAt, sql`NOW() - INTERVAL '10 days'`))
+      ),
       db.select({ total: count() }).from(businesses).where(gte(businesses.createdAt, since as any)),
       db.select({ total: count() }).from(accounts),
       db.select({ total: count() }).from(accounts).where(eq(accounts.status, 'locked')),
