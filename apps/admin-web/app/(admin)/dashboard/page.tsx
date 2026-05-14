@@ -72,13 +72,6 @@ const PERIODS: { key: Period; label: string }[] = [
   { key: '1y', label: '1 năm' },
 ];
 
-const ASSIGNEES = [
-  { id: '', label: 'Tất cả phụ trách' },
-  { id: 'minh-anh', label: 'Nguyễn Minh Anh' },
-  { id: 'quoc-bao', label: 'Trần Quốc Bảo' },
-  { id: 'thu-ha', label: 'Phạm Thu Hà' },
-  { id: 'hoai-nam', label: 'Lê Hoài Nam' },
-];
 
 const STATUS_CFG: Record<string, { label: string; cls: string; color: string; dot: string }> = {
   active: { label: 'Hoạt động', cls: 'bg-emerald-500/10 text-emerald-600', color: '#10b981', dot: 'bg-emerald-500' },
@@ -159,6 +152,15 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>('30d');
   const [assigneeId, setAssigneeId] = useState('');
 
+  const { data: adminAccounts } = useQuery<{ id: string; fullName: string | null }[]>({
+    queryKey: ['platform-admins'],
+    queryFn: () =>
+      api
+        .get('/platform/accounts', { params: { isPlatformAdmin: true, limit: 100 } })
+        .then((r) => r.data.data),
+    staleTime: 300_000,
+  });
+
   const { data, isLoading } = useQuery<DashboardStats>({
     queryKey: ['dashboard-stats', period, assigneeId],
     queryFn: () =>
@@ -218,9 +220,10 @@ export default function DashboardPage() {
               onChange={(e) => setAssigneeId(e.target.value)}
               className="h-9 min-w-48 rounded-lg border border-input bg-card pl-8 pr-3 text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              {ASSIGNEES.map((item) => (
-                <option key={item.id || 'all'} value={item.id}>
-                  {item.label}
+              <option value="">Tất cả phụ trách</option>
+              {(adminAccounts ?? []).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.fullName ?? a.id}
                 </option>
               ))}
             </select>

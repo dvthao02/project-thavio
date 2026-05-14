@@ -11,13 +11,14 @@ export class AccountsService {
   constructor(private readonly platformDb: PlatformDbService) {}
 
   async list(dto: ListAccountsDto) {
-    const { page, limit, status, search } = dto;
+    const { page, limit, status, search, isPlatformAdmin } = dto;
     const offset = (page - 1) * limit;
 
     const db = this.platformDb.db;
 
     const filters: SQL[] = [];
     if (status) filters.push(eq(accounts.status, status));
+    if (isPlatformAdmin !== undefined) filters.push(eq(accounts.isPlatformAdmin, isPlatformAdmin));
     if (search) {
       filters.push(
         or(

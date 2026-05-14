@@ -5,6 +5,7 @@ export const ListAccountsSchema = z.object({
   limit: z.coerce.number().int().positive().max(100).optional().default(20),
   status: z.enum(['pending', 'active', 'locked', 'disabled']).optional(),
   search: z.string().optional(),
+  isPlatformAdmin: z.coerce.boolean().optional(),
 });
 
 export type ListAccountsDto = z.infer<typeof ListAccountsSchema>;
