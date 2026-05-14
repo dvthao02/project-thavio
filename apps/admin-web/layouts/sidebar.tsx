@@ -121,25 +121,37 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           collapsed ? 'justify-center px-2' : 'justify-between px-4',
         )}
       >
-        {!collapsed && (
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-muted"
+            aria-label="Hiện menu"
+            title="Hiện menu"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-icon.png" alt="Thavio" className="h-8 w-8 object-contain" />
+          </button>
+        ) : (
           <div className="flex items-center gap-3 min-w-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-icon.png" alt="Thavio" className="w-12 h-auto object-contain shrink-0" />
+            <img src="/logo-icon.png" alt="Thavio" className="w-14 h-auto object-contain shrink-0" />
             <div className="min-w-0">
-              <p className="text-lg font-bold leading-none tracking-wide text-foreground">THAVIO</p>
-              <p className="text-[11px] text-muted-foreground mt-1">Quản trị nền tảng</p>
+              <p className="text-xl font-bold leading-none tracking-wide text-foreground">THADIO</p>
             </div>
           </div>
         )}
-        <button
-          type="button"
-          onClick={onToggle}
-          className="w-9 h-9 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition"
-          aria-label={collapsed ? 'Hiện menu' : 'Ẩn menu'}
-          title={collapsed ? 'Hiện menu' : 'Ẩn menu'}
-        >
-          <Menu size={18} />
-        </button>
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="w-9 h-9 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition"
+            aria-label="Ẩn menu"
+            title="Ẩn menu"
+          >
+            <Menu size={18} />
+          </button>
+        )}
       </div>
 
       <nav className={cn('flex-1 overflow-y-auto py-4', collapsed ? 'px-2 space-y-2' : 'px-3 space-y-4')}>
