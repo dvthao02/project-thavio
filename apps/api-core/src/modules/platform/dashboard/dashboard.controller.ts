@@ -15,7 +15,7 @@ export class DashboardController {
   @RequirePermission('platform.dashboard.view')
   @Get('stats')
   getStats(@Query() query: unknown) {
-    const { period } = StatsQuerySchema.parse(query);
-    return this.dashboardService.getStats(period);
+    const { period, assignedAccountId } = StatsQuerySchema.parse(query);
+    return this.dashboardService.getStats(period, assignedAccountId);
   }
 }

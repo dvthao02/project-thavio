@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { count, eq, desc, sql, gte, and } from 'drizzle-orm';
+import { count, eq, desc, sql, gte, and, inArray, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
-import { businesses, accounts } from '@schema/platform';
+import { businesses, accounts, accountBusinesses } from '@schema/platform';
 
 export type Period = '7d' | '30d' | '3m' | '6m' | '1y';
 
@@ -25,12 +25,43 @@ const FMT: Record<'day' | 'month', string> = {
 export class DashboardService {
   constructor(private readonly platformDb: PlatformDbService) {}
 
-  async getStats(period: Period = '30d') {
+  async getStats(period: Period = '30d', assignedAccountId?: string) {
     const db = this.platformDb.db;
     const interval = INTERVAL[period];
     const groupBy = GROUP_BY[period];
     const fmt = FMT[groupBy];
     const since = sql`NOW() - INTERVAL ${sql.raw(`'${interval}'`)}`;
+
+    // When filtering by assignee, resolve their business IDs first
+    let bizIds: string[] | undefined;
+    if (assignedAccountId) {
+      const rows = await db
+        .select({ businessId: accountBusinesses.businessId })
+        .from(accountBusinesses)
+        .where(and(
+          eq(accountBusinesses.accountId, assignedAccountId),
+          eq(accountBusinesses.status, 'active'),
+        ));
+      bizIds = rows.map((r) => r.businessId).filter(Boolean) as string[];
+    }
+
+    // Compose WHERE: optional biz-scope + optional extra condition
+    const w = (...extra: (SQL | undefined)[]): SQL | undefined => {
+      const clauses = [
+        bizIds ? (bizIds.length > 0 ? inArray(businesses.id, bizIds) : sql`1=0`) : undefined,
+        ...extra,
+      ].filter(Boolean) as SQL[];
+      if (clauses.length === 0) return undefined;
+      if (clauses.length === 1) return clauses[0];
+      return and(...clauses);
+    };
+
+    // For raw-SQL queries (byPlan, byPeriod) add an optional IN clause
+    const bizIdClause = bizIds
+      ? bizIds.length > 0
+        ? `AND id = ANY('{${bizIds.join(',')}}'::uuid[])`
+        : 'AND 1=0'
+      : '';
 
     const [
       [{ total: totalBusinesses }],
@@ -48,15 +79,15 @@ export class DashboardService {
       byPlanRows,
       byPeriodRows,
     ] = await Promise.all([
-      db.select({ total: count() }).from(businesses),
-      db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'active')),
-      db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'pending')),
-      db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'suspended')),
-      db.select({ total: count() }).from(businesses).where(eq(businesses.status, 'inactive')),
+      db.select({ total: count() }).from(businesses).where(w()),
+      db.select({ total: count() }).from(businesses).where(w(eq(businesses.status, 'active'))),
+      db.select({ total: count() }).from(businesses).where(w(eq(businesses.status, 'pending'))),
+      db.select({ total: count() }).from(businesses).where(w(eq(businesses.status, 'suspended'))),
+      db.select({ total: count() }).from(businesses).where(w(eq(businesses.status, 'inactive'))),
       db.select({ total: count() }).from(businesses).where(
-        and(eq(businesses.status, 'active'), gte(businesses.createdAt, sql`NOW() - INTERVAL '10 days'`))
+        w(eq(businesses.status, 'active'), gte(businesses.createdAt, sql`NOW() - INTERVAL '10 days'`))
       ),
-      db.select({ total: count() }).from(businesses).where(gte(businesses.createdAt, since as any)),
+      db.select({ total: count() }).from(businesses).where(w(gte(businesses.createdAt, since as any))),
       db.select({ total: count() }).from(accounts),
       db.select({ total: count() }).from(accounts).where(eq(accounts.status, 'locked')),
       db.select({ total: count() }).from(accounts).where(gte(accounts.createdAt, since as any)),
@@ -71,6 +102,7 @@ export class DashboardService {
           createdAt: businesses.createdAt,
         })
         .from(businesses)
+        .where(w())
         .orderBy(desc(businesses.createdAt))
         .limit(8),
       db
@@ -87,21 +119,20 @@ export class DashboardService {
         .orderBy(desc(accounts.createdAt))
         .limit(6),
       // By plan
-      db.execute(
-        sql`SELECT subscription_plan AS plan, COUNT(*)::int AS total
-            FROM platform.businesses GROUP BY subscription_plan ORDER BY total DESC`,
-      ),
+      db.execute(sql.raw(
+        `SELECT subscription_plan AS plan, COUNT(*)::int AS total
+         FROM platform.businesses WHERE 1=1 ${bizIdClause}
+         GROUP BY subscription_plan ORDER BY total DESC`,
+      )),
       // By period
-      db.execute(
-        sql.raw(`
-          SELECT TO_CHAR(DATE_TRUNC('${groupBy}', created_at AT TIME ZONE 'UTC'), '${fmt}') AS label,
-                 COUNT(*)::int AS total
-          FROM platform.businesses
-          WHERE created_at >= NOW() - INTERVAL '${interval}'
-          GROUP BY DATE_TRUNC('${groupBy}', created_at AT TIME ZONE 'UTC')
-          ORDER BY DATE_TRUNC('${groupBy}', created_at AT TIME ZONE 'UTC') ASC
-        `),
-      ),
+      db.execute(sql.raw(
+        `SELECT TO_CHAR(DATE_TRUNC('${groupBy}', created_at AT TIME ZONE 'UTC'), '${fmt}') AS label,
+                COUNT(*)::int AS total
+         FROM platform.businesses
+         WHERE created_at >= NOW() - INTERVAL '${interval}' ${bizIdClause}
+         GROUP BY DATE_TRUNC('${groupBy}', created_at AT TIME ZONE 'UTC')
+         ORDER BY DATE_TRUNC('${groupBy}', created_at AT TIME ZONE 'UTC') ASC`,
+      )),
     ]);
 
     return {
