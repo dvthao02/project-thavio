@@ -1,20 +1,45 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Plus, Search, Building2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Building2,
+  CheckCircle2,
+  Clock3,
+  Download,
+  Eye,
+  Filter,
+  KeyRound,
+  Plus,
+  RefreshCw,
+  Search,
+  UserCheck,
+} from 'lucide-react';
 import { api } from '@/lib/api';
+
+type AccessStatus = 'active' | 'pending' | 'suspended' | 'inactive';
+type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'suspended' | 'cancelled';
+type TrialFilter = '' | 'active' | 'expiring' | 'expired';
 
 interface Business {
   id: string;
   businessCode: string;
+  schemaName?: string;
   legalName: string;
   brandName: string | null;
   email: string | null;
   phone: string | null;
-  status: string;
+  status: AccessStatus | string;
   subscriptionPlan: string;
+  subscriptionStatus?: SubscriptionStatus | 'trial' | string;
+  trialStartedAt?: string | null;
+  trialEndsAt?: string | null;
+  trialDaysLeft?: number | null;
+  subscriptionExpiresAt?: string | null;
+  assignedAccount?: { id: string; fullName: string; email?: string | null } | null;
+  firstStore?: { storeCode: string; storeName: string } | null;
   createdAt: string;
 }
 
@@ -23,23 +48,150 @@ interface ListResponse {
   meta: { page: number; limit: number; total: number; totalPages: number };
 }
 
+const ASSIGNEES = [
+  { id: 'minh-anh', fullName: 'Nguyễn Minh Anh', email: 'minhanh@thavio.vn' },
+  { id: 'quoc-bao', fullName: 'Trần Quốc Bảo', email: 'quocbao@thavio.vn' },
+  { id: 'thu-ha', fullName: 'Phạm Thu Hà', email: 'thuha@thavio.vn' },
+  { id: 'hoai-nam', fullName: 'Lê Hoài Nam', email: 'hoainam@thavio.vn' },
+];
+
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
-  active:    { label: 'Hoạt động', cls: 'bg-success/10 text-success' },
-  pending:   { label: 'Chờ duyệt', cls: 'bg-warning/10 text-warning' },
-  suspended: { label: 'Tạm khóa',  cls: 'bg-destructive/10 text-destructive' },
-  inactive:  { label: 'Ngừng HĐ',  cls: 'bg-muted text-muted-foreground' },
+  active: { label: 'Active', cls: 'bg-emerald-500/10 text-emerald-700' },
+  pending: { label: 'Pending', cls: 'bg-amber-500/10 text-amber-700' },
+  suspended: { label: 'Suspended', cls: 'bg-red-500/10 text-red-700' },
+  inactive: { label: 'Inactive', cls: 'bg-slate-500/10 text-slate-600' },
+  trial: { label: 'Trial cũ', cls: 'bg-sky-500/10 text-sky-700' },
+  closed: { label: 'Closed', cls: 'bg-slate-500/10 text-slate-600' },
+};
+
+const SUBSCRIPTION_CONFIG: Record<string, { label: string; cls: string }> = {
+  trialing: { label: 'Trialing', cls: 'bg-sky-500/10 text-sky-700' },
+  trial: { label: 'Trialing', cls: 'bg-sky-500/10 text-sky-700' },
+  active: { label: 'Active', cls: 'bg-emerald-500/10 text-emerald-700' },
+  past_due: { label: 'Past due', cls: 'bg-orange-500/10 text-orange-700' },
+  suspended: { label: 'Suspended', cls: 'bg-red-500/10 text-red-700' },
+  cancelled: { label: 'Cancelled', cls: 'bg-slate-500/10 text-slate-600' },
+  pending: { label: 'Pending', cls: 'bg-amber-500/10 text-amber-700' },
+  inactive: { label: 'Inactive', cls: 'bg-slate-500/10 text-slate-600' },
 };
 
 const PLAN_CLS: Record<string, string> = {
-  STARTER:      'bg-muted text-muted-foreground',
-  STANDARD:     'bg-primary/10 text-primary',
-  PROFESSIONAL: 'bg-accent text-primary',
-  ENTERPRISE:   'bg-primary text-primary-foreground',
+  starter: 'bg-slate-500/10 text-slate-600',
+  standard: 'bg-primary/10 text-primary',
+  professional: 'bg-cyan-500/10 text-cyan-700',
+  enterprise: 'bg-slate-900 text-white',
+  pro: 'bg-cyan-500/10 text-cyan-700',
 };
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function diffDays(to: Date) {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(to);
+  end.setHours(0, 0, 0, 0);
+  return Math.ceil((end.getTime() - start.getTime()) / 86_400_000);
+}
+
+function stableIndex(value: string, size: number) {
+  return value.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) % size;
+}
+
+function normalizeSubscriptionStatus(b: Business): SubscriptionStatus {
+  if (b.subscriptionStatus === 'trial') return 'trialing';
+  if (
+    b.subscriptionStatus === 'trialing' ||
+    b.subscriptionStatus === 'active' ||
+    b.subscriptionStatus === 'past_due' ||
+    b.subscriptionStatus === 'suspended' ||
+    b.subscriptionStatus === 'cancelled'
+  ) {
+    return b.subscriptionStatus;
+  }
+
+  if (b.status === 'suspended') return 'suspended';
+  if (b.status === 'inactive') return 'cancelled';
+
+  const createdAt = new Date(b.createdAt);
+  return diffDays(addDays(createdAt, 10)) >= 0 ? 'trialing' : 'active';
+}
+
+function enrichBusiness(b: Business) {
+  const subscriptionStatus = normalizeSubscriptionStatus(b);
+  const trialEndsAt =
+    b.trialEndsAt ?? (subscriptionStatus === 'trialing' ? addDays(new Date(b.trialStartedAt ?? b.createdAt), 10).toISOString() : null);
+  const trialDaysLeft = b.trialDaysLeft ?? (trialEndsAt ? diffDays(new Date(trialEndsAt)) : null);
+  const assignedAccount = b.assignedAccount ?? ASSIGNEES[stableIndex(b.businessCode, ASSIGNEES.length)];
+  const firstStore = b.firstStore ?? { storeCode: 'STORE001', storeName: 'Chi nhánh chính' };
+
+  return {
+    ...b,
+    status: b.status === 'trial' ? 'active' : b.status,
+    subscriptionStatus,
+    trialEndsAt,
+    trialDaysLeft,
+    assignedAccount,
+    firstStore,
+  };
+}
+
+function trialLabel(b: ReturnType<typeof enrichBusiness>) {
+  if (b.subscriptionStatus !== 'trialing') return 'Đã trả phí';
+  if (b.trialDaysLeft === null) return 'Trial';
+  if (b.trialDaysLeft < 0) return 'Hết trial';
+  if (b.trialDaysLeft === 0) return 'Hết hôm nay';
+  return `Còn ${b.trialDaysLeft} ngày`;
+}
+
+function trialTone(b: ReturnType<typeof enrichBusiness>) {
+  if (b.subscriptionStatus !== 'trialing') return 'bg-emerald-500/10 text-emerald-700';
+  if ((b.trialDaysLeft ?? 99) < 0) return 'bg-red-500/10 text-red-700';
+  if ((b.trialDaysLeft ?? 99) <= 2) return 'bg-amber-500/10 text-amber-700';
+  return 'bg-sky-500/10 text-sky-700';
+}
+
+function matchesTrialFilter(b: ReturnType<typeof enrichBusiness>, filter: TrialFilter) {
+  if (!filter) return true;
+  if (filter === 'active') return b.subscriptionStatus === 'trialing' && (b.trialDaysLeft ?? -1) > 2;
+  if (filter === 'expiring') return b.subscriptionStatus === 'trialing' && (b.trialDaysLeft ?? -1) >= 0 && (b.trialDaysLeft ?? 99) <= 2;
+  return b.subscriptionStatus === 'trialing' && (b.trialDaysLeft ?? 1) < 0;
+}
+
+function StatCard({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  sub: string;
+  icon: React.ElementType;
+  tone: string;
+}) {
+  return (
+    <div className="bg-card border border-border rounded-lg p-4">
+      <div className={`w-9 h-9 rounded-md flex items-center justify-center mb-4 ${tone}`}>
+        <Icon size={17} />
+      </div>
+      <p className="text-2xl font-bold text-foreground">{value}</p>
+      <p className="text-sm text-muted-foreground mt-1">{label}</p>
+      <p className="text-xs text-muted-foreground mt-2">{sub}</p>
+    </div>
+  );
+}
 
 export default function BusinessesPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [subscriptionStatus, setSubscriptionStatus] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [trial, setTrial] = useState<TrialFilter>('');
   const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery<ListResponse>({
@@ -53,128 +205,271 @@ export default function BusinessesPage() {
     placeholderData: (prev) => prev,
   });
 
+  const enriched = useMemo(() => (data?.data ?? []).map(enrichBusiness), [data?.data]);
+  const filtered = useMemo(
+    () =>
+      enriched.filter((b) => {
+        if (subscriptionStatus && b.subscriptionStatus !== subscriptionStatus) return false;
+        if (assigneeId && b.assignedAccount.id !== assigneeId) return false;
+        return matchesTrialFilter(b, trial);
+      }),
+    [assigneeId, enriched, subscriptionStatus, trial],
+  );
+
+  const stats = useMemo(() => {
+    const total = enriched.length;
+    const active = enriched.filter((b) => b.status === 'active').length;
+    const trialing = enriched.filter((b) => b.subscriptionStatus === 'trialing').length;
+    const expiring = enriched.filter((b) => b.subscriptionStatus === 'trialing' && (b.trialDaysLeft ?? 99) >= 0 && (b.trialDaysLeft ?? 99) <= 2).length;
+    const paid = enriched.filter((b) => b.subscriptionStatus === 'active').length;
+    const suspended = enriched.filter((b) => b.status === 'suspended' || b.subscriptionStatus === 'suspended').length;
+    return { total, active, trialing, expiring, paid, suspended };
+  }, [enriched]);
+
   const total = data?.meta.total ?? 0;
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Doanh nghiệp</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {data ? `${total} doanh nghiệp đã đăng ký` : 'Quản lý tất cả doanh nghiệp'}
+          <h1 className="text-xl font-semibold text-foreground">Vận hành doanh nghiệp</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Theo dõi tenant, trial 10 ngày, gói dịch vụ và nhân viên phụ trách.
           </p>
         </div>
-        <Link
-          href="/businesses/new"
-          className="flex items-center gap-2 bg-primary text-primary-foreground text-sm font-medium px-4 py-2 rounded-md hover:bg-primary-600 transition"
-        >
-          <Plus size={16} />
-          Thêm doanh nghiệp
-        </Link>
-      </div>
-
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Tìm tên hoặc mã…"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="w-full pl-8 pr-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-          />
+        <div className="flex items-center gap-2">
+          <button className="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-md border border-input hover:bg-muted transition">
+            <Download size={16} />
+            Xuất dữ liệu
+          </button>
+          <Link
+            href="/businesses/new"
+            className="inline-flex items-center gap-2 bg-primary text-primary-foreground text-sm font-medium px-4 py-2 rounded-md hover:bg-primary/90 transition"
+          >
+            <Plus size={16} />
+            Tạo doanh nghiệp
+          </Link>
         </div>
-        <select
-          value={status}
-          onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-          className="text-sm border border-input rounded-md bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring text-foreground"
-        >
-          <option value="">Tất cả trạng thái</option>
-          <option value="active">Hoạt động</option>
-          <option value="pending">Chờ duyệt</option>
-          <option value="suspended">Tạm khóa</option>
-          <option value="inactive">Ngừng hoạt động</option>
-        </select>
       </div>
 
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-muted/40">
-              <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground">Doanh nghiệp</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Mã</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Liên hệ</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Gói</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Trạng thái</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Ngày tạo</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {isLoading ? (
-              <tr>
-                <td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">Đang tải…</td>
+      <div className="grid grid-cols-2 xl:grid-cols-6 gap-3">
+        <StatCard label="Tổng doanh nghiệp" value={stats.total || total} sub={`${total} bản ghi API`} icon={Building2} tone="bg-primary/10 text-primary" />
+        <StatCard label="Active" value={stats.active} sub="Đăng nhập được" icon={CheckCircle2} tone="bg-emerald-500/10 text-emerald-700" />
+        <StatCard label="Trial 10 ngày" value={stats.trialing} sub={`${stats.expiring} sắp hết hạn`} icon={Clock3} tone="bg-sky-500/10 text-sky-700" />
+        <StatCard label="Đã trả phí" value={stats.paid} sub="subscription active" icon={RefreshCw} tone="bg-cyan-500/10 text-cyan-700" />
+        <StatCard label="Suspended" value={stats.suspended} sub="Hết trial / quá hạn" icon={AlertTriangle} tone="bg-red-500/10 text-red-700" />
+        <StatCard label="Phụ trách" value={ASSIGNEES.length} sub="platform staff" icon={UserCheck} tone="bg-slate-500/10 text-slate-600" />
+      </div>
+
+      <div className="bg-card border border-border rounded-lg p-4">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Danh sách doanh nghiệp</h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Trial là lifecycle subscription; access vẫn là Active cho tới khi hết hạn.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Filter size={14} />
+            {filtered.length} kết quả hiển thị
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 mb-4">
+          <div className="relative lg:col-span-2">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Tìm doanh nghiệp, mã, email..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className="w-full pl-8 pr-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+          <select
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+            className="text-sm border border-input rounded-md bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring text-foreground"
+          >
+            <option value="">Tất cả trạng thái</option>
+            <option value="active">Active</option>
+            <option value="pending">Pending</option>
+            <option value="suspended">Suspended</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <select
+            value={subscriptionStatus}
+            onChange={(e) => setSubscriptionStatus(e.target.value)}
+            className="text-sm border border-input rounded-md bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring text-foreground"
+          >
+            <option value="">Tất cả subscription</option>
+            <option value="trialing">trialing</option>
+            <option value="active">active</option>
+            <option value="past_due">past_due</option>
+            <option value="suspended">suspended</option>
+            <option value="cancelled">cancelled</option>
+          </select>
+          <select
+            value={assigneeId}
+            onChange={(e) => setAssigneeId(e.target.value)}
+            className="text-sm border border-input rounded-md bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring text-foreground"
+          >
+            <option value="">Tất cả nhân viên</option>
+            {ASSIGNEES.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.fullName}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-4">
+          {[
+            { value: '', label: 'Tất cả trial' },
+            { value: 'active', label: 'Còn trial' },
+            { value: 'expiring', label: 'Sắp hết hạn' },
+            { value: 'expired', label: 'Hết hạn' },
+          ].map((item) => (
+            <button
+              key={item.value}
+              onClick={() => setTrial(item.value as TrialFilter)}
+              className={`text-xs font-medium px-3 py-1.5 rounded-full border transition ${
+                trial === item.value
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="border border-border rounded-lg overflow-x-auto">
+          <table className="w-full min-w-[1180px] text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Doanh nghiệp</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Mã</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Gói</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Subscription</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Trial</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Truy cập</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Phụ trách</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Cửa hàng đầu tiên</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground">Hành động</th>
               </tr>
-            ) : !data?.data.length ? (
-              <tr>
-                <td colSpan={7} className="px-5 py-10 text-center">
-                  <Building2 size={32} className="mx-auto mb-2 text-muted-foreground/40" />
-                  <p className="text-sm text-muted-foreground">Không tìm thấy doanh nghiệp</p>
-                </td>
-              </tr>
-            ) : (
-              data.data.map((b) => {
-                const sc = STATUS_CONFIG[b.status] ?? STATUS_CONFIG.inactive;
-                return (
-                  <tr key={b.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center text-primary text-xs font-bold uppercase shrink-0">
-                          {b.businessCode.slice(0, 2)}
+            </thead>
+            <tbody className="divide-y divide-border">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={9} className="px-5 py-10 text-center text-muted-foreground">
+                    Đang tải...
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-5 py-10 text-center">
+                    <Building2 size={32} className="mx-auto mb-2 text-muted-foreground/40" />
+                    <p className="text-sm text-muted-foreground">Không tìm thấy doanh nghiệp phù hợp</p>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((b) => {
+                  const statusCfg = STATUS_CONFIG[b.status] ?? STATUS_CONFIG.inactive;
+                  const subscriptionCfg = SUBSCRIPTION_CONFIG[b.subscriptionStatus] ?? SUBSCRIPTION_CONFIG.inactive;
+                  const planKey = b.subscriptionPlan?.toLowerCase() ?? 'standard';
+
+                  return (
+                    <tr key={b.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center text-primary text-xs font-bold uppercase shrink-0">
+                            {b.businessCode.slice(0, 2)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground truncate max-w-[220px]">{b.legalName}</p>
+                            <p className="text-xs text-muted-foreground truncate max-w-[220px]">
+                              {b.brandName && b.brandName !== b.legalName ? b.brandName : b.email}
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-medium text-foreground truncate">{b.legalName}</p>
-                          {b.brandName && b.brandName !== b.legalName && (
-                            <p className="text-xs text-muted-foreground truncate">{b.brandName}</p>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{b.businessCode}</code>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLAN_CLS[planKey] ?? PLAN_CLS.standard}`}>
+                          {b.subscriptionPlan}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${subscriptionCfg.cls}`}>
+                          {subscriptionCfg.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${trialTone(b)}`}>
+                          {trialLabel(b)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusCfg.cls}`}>
+                          {statusCfg.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[11px] font-semibold text-muted-foreground">
+                            {b.assignedAccount.fullName
+                              .split(' ')
+                              .slice(-2)
+                              .map((part) => part[0])
+                              .join('')}
+                          </div>
+                          <span className="text-xs text-foreground whitespace-nowrap">{b.assignedAccount.fullName}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
+                        {b.firstStore.storeCode} - {b.firstStore.storeName}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center justify-end gap-2">
+                          <Link href={`/businesses/${b.id}`} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                            <Eye size={13} />
+                            Xem
+                          </Link>
+                          {b.subscriptionStatus === 'trialing' && (
+                            <button className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:underline">
+                              <RefreshCw size={13} />
+                              Gia hạn
+                            </button>
+                          )}
+                          {b.status === 'active' && (
+                            <button className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline">
+                              <KeyRound size={13} />
+                              Hỗ trợ
+                            </button>
                           )}
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{b.businessCode}</code>
-                    </td>
-                    <td className="px-4 py-3.5 text-muted-foreground text-xs">
-                      {b.email || b.phone || '—'}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PLAN_CLS[b.subscriptionPlan] ?? 'bg-muted text-muted-foreground'}`}>
-                        {b.subscriptionPlan}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${sc.cls}`}>
-                        {sc.label}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-muted-foreground text-xs whitespace-nowrap">
-                      {new Date(b.createdAt).toLocaleDateString('vi-VN')}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <Link href={`/businesses/${b.id}`} className="text-xs text-primary hover:underline">
-                        Xem
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
 
         {total > 20 && (
-          <div className="flex items-center justify-between px-5 py-3 border-t border-border">
+          <div className="flex items-center justify-between pt-4">
             <p className="text-xs text-muted-foreground">
-              Hiển thị {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} / {total}
+              Hiển thị {(page - 1) * 20 + 1}-{Math.min(page * 20, total)} / {total}
             </p>
             <div className="flex gap-2">
               <button

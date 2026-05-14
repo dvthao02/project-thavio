@@ -18,7 +18,10 @@
       "@common/*": ["src/common/*"],
       "@modules/*": ["src/modules/*"],
       "@schema/*": ["src/schema/*"],
-      "@config/*": ["src/config/*"]
+      "@config/*": ["src/config/*"],
+      "@decorators/*": ["src/decorators/*"],
+      "@guards/*": ["src/guards/*"],
+      "@middlewares/*": ["src/middlewares/*"]
     }
   }
 }

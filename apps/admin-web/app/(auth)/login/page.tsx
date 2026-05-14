@@ -1,13 +1,27 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import axios from 'axios';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
 
+function getSafeRedirectTarget() {
+  const fallback = '/dashboard';
+  const from = new URLSearchParams(window.location.search).get('from');
+
+  if (!from || !from.startsWith('/') || from.startsWith('//') || from.includes('\\')) {
+    return fallback;
+  }
+
+  if (from === '/login' || from.startsWith('/login?')) {
+    return fallback;
+  }
+
+  return from;
+}
+
 export default function LoginPage() {
-  const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -18,17 +32,36 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
+
     try {
       const { data } = await api.post('/platform/auth/login', { identifier, password });
+      if (!data?.accessToken || !data?.account) {
+        throw new Error('AUTH_RESPONSE_INVALID');
+      }
+
       setAuth(data.accessToken, data.account);
-      document.cookie = `admin_token=${data.accessToken}; path=/; max-age=${8 * 3600}`;
-      router.push('/dashboard');
+      document.cookie = `admin_token=${data.accessToken}; path=/; max-age=${8 * 3600}; SameSite=Lax`;
+
+      window.location.assign(getSafeRedirectTarget());
     } catch (err: unknown) {
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
-          : undefined;
-      setError(msg ?? 'Login failed. Please check your credentials.');
+      if (axios.isAxiosError(err)) {
+        if (err.response?.status === 401) {
+          setError('Sai tài khoản hoặc mật khẩu.');
+        } else if (err.response?.data?.message) {
+          const message = Array.isArray(err.response.data.message)
+            ? err.response.data.message.join(', ')
+            : err.response.data.message;
+          setError(message);
+        } else if (err.request) {
+          setError('Không kết nối được API. Kiểm tra api-core có đang chạy ở localhost:3000 không.');
+        } else {
+          setError('Không gửi được yêu cầu đăng nhập.');
+        }
+      } else if (err instanceof Error && err.message === 'AUTH_RESPONSE_INVALID') {
+        setError('API đăng nhập trả dữ liệu không hợp lệ.');
+      } else {
+        setError('Đăng nhập thất bại. Vui lòng thử lại.');
+      }
     } finally {
       setLoading(false);
     }
@@ -55,8 +88,9 @@ export default function LoginPage() {
                 type="text"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="admin@pos-master.vn"
+                placeholder="admin@thavio.vn"
                 required
+                autoComplete="username"
                 className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition"
               />
             </div>
@@ -72,6 +106,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
+                autoComplete="current-password"
                 className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition"
               />
             </div>
@@ -85,7 +120,7 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full bg-primary text-primary-foreground text-sm font-medium px-4 py-2.5 rounded-md hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              {loading ? 'Đang đăng nhập…' : 'Đăng nhập'}
+              {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
             </button>
           </form>
         </div>

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api/v1';
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -18,7 +18,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401 && typeof window !== 'undefined') {
+    const requestUrl = String(err.config?.url ?? '');
+    const isLoginRequest = requestUrl.includes('/platform/auth/login');
+
+    if (err.response?.status === 401 && !isLoginRequest && typeof window !== 'undefined') {
       localStorage.removeItem('admin_token');
       document.cookie = 'admin_token=; path=/; max-age=0; SameSite=Lax';
       window.location.href = '/login';

@@ -23,7 +23,7 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (token, user) => {
         if (typeof window !== 'undefined') {
           localStorage.setItem('admin_token', token);
-          document.cookie = `admin_token=${token}; path=/; SameSite=Lax`;
+          document.cookie = `admin_token=${token}; path=/; max-age=${8 * 3600}; SameSite=Lax`;
         }
         set({ token, user });
       },
