@@ -81,6 +81,8 @@ const STATUS_CFG: Record<string, { label: string; cls: string; color: string; do
   inactive: { label: 'Ngừng HĐ', cls: 'bg-muted text-muted-foreground', color: '#94a3b8', dot: 'bg-slate-400' },
 };
 
+const PERIOD_DAYS: Partial<Record<Period, number>> = { '7d': 7, '30d': 30 };
+
 const PLAN_COLOR: Record<string, string> = {
   starter: '#64748b',
   standard: '#1A7AE8',
@@ -127,23 +129,27 @@ function StatCard({
   trend?: number;
 }) {
   return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${iconCls}`}>
-        <Icon size={18} />
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${iconCls}`}>
+        <Icon size={16} />
       </div>
-      <p className="text-2xl font-bold text-foreground">{value}</p>
-      <p className="text-xs text-muted-foreground mt-1">{label}</p>
-      {(sub !== undefined || trend !== undefined) && (
-        <div className="mt-2">
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <p className="text-lg font-bold leading-none text-foreground">{value}</p>
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+        </div>
+        {(sub !== undefined || trend !== undefined) && (
+        <div className="mt-1">
           {trend !== undefined && trend > 0 && (
-            <span className="flex items-center gap-0.5 text-xs text-emerald-600 font-medium">
-              <TrendingUp size={11} /> +{trend} trong kỳ
+            <span className="flex items-center gap-0.5 text-[11px] text-emerald-600 font-medium">
+              <TrendingUp size={10} /> +{trend} trong kỳ
             </span>
           )}
-          {trend === 0 && <span className="text-xs text-muted-foreground">Không đổi trong kỳ</span>}
-          {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
+          {trend === 0 && <span className="text-[11px] text-muted-foreground">Không đổi trong kỳ</span>}
+          {sub && <span className="text-[11px] text-muted-foreground">{sub}</span>}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -151,12 +157,11 @@ function StatCard({
 export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>('30d');
   const [assigneeId, setAssigneeId] = useState('');
-
-  const { data: adminAccounts } = useQuery<{ id: string; fullName: string | null }[]>({
-    queryKey: ['platform-admins'],
+  const { data: assigneeAccounts } = useQuery<Array<{ id: string; username: string; fullName: string | null; email: string | null }>>({
+    queryKey: ['dashboard-assignee-options'],
     queryFn: () =>
       api
-        .get('/platform/accounts', { params: { isPlatformAdmin: true, limit: 100 } })
+        .get('/platform/accounts', { params: { page: 1, limit: 100 } })
         .then((r) => r.data.data),
     staleTime: 300_000,
   });
@@ -172,58 +177,68 @@ export default function DashboardPage() {
     refetchInterval: 60_000,
   });
 
-  const total = data?.businesses.total ?? 0;
+  const biz = data?.businesses;
+  const total = biz?.total ?? 0;
   const donutData = [
-    { name: 'Hoạt động', value: data?.businesses.active ?? 0, fill: '#10b981' },
-    { name: 'Dùng thử', value: data?.businesses.trial ?? 0, fill: '#0ea5e9' },
-    { name: 'Chờ kích hoạt', value: data?.businesses.pending ?? 0, fill: '#f59e0b' },
-    { name: 'Tạm khóa', value: data?.businesses.suspended ?? 0, fill: '#ef4444' },
-    { name: 'Ngừng HĐ', value: data?.businesses.inactive ?? 0, fill: '#94a3b8' },
+    { name: 'Hoạt động', value: biz?.active ?? 0, fill: '#10b981' },
+    { name: 'Dùng thử', value: biz?.trial ?? 0, fill: '#0ea5e9' },
+    { name: 'Chờ kích hoạt', value: biz?.pending ?? 0, fill: '#f59e0b' },
+    { name: 'Tạm khóa', value: biz?.suspended ?? 0, fill: '#ef4444' },
+    { name: 'Ngừng HĐ', value: biz?.inactive ?? 0, fill: '#94a3b8' },
   ].filter((d) => d.value > 0);
 
-  const planData = (data?.businesses.byPlan ?? []).map((p) => ({
+  const planData = (biz?.byPlan ?? []).map((p) => ({
     name: p.plan.charAt(0).toUpperCase() + p.plan.slice(1).toLowerCase(),
     total: p.total,
     fill: PLAN_COLOR[norm(p.plan)] ?? '#94a3b8',
   }));
 
-  const areaData = (data?.businesses.byPeriod ?? []).map((p) => ({
-    label: p.label,
-    'Doanh nghiệp': p.total,
-  }));
+  const areaData = (() => {
+    const raw = biz?.byPeriod ?? [];
+    const days = PERIOD_DAYS[period];
+    if (!days || raw.length === 0) return raw.map((p) => ({ label: p.label, 'Doanh nghiệp': p.total }));
+    const dateMap = new Map(raw.map((p) => [p.label, p.total]));
+    const today = new Date();
+    return Array.from({ length: days }, (_, i) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() - (days - 1 - i));
+      const label = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+      return { label, 'Doanh nghiệp': dateMap.get(label) ?? 0 };
+    });
+  })();
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold text-foreground">Tổng quan nền tảng</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Thống kê và hoạt động Thavio Platform</p>
         </div>
+
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+          <select
+            value={period}
+            onChange={(event) => setPeriod(event.target.value as Period)}
+            className="h-10 w-[160px] rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+          >
             {PERIODS.map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => setPeriod(key)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  period === key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
+              <option key={key} value={key}>
                 {label}
-              </button>
+              </option>
             ))}
-          </div>
+          </select>
+
           <div className="relative">
             <UserCheck size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <select
               value={assigneeId}
-              onChange={(e) => setAssigneeId(e.target.value)}
-              className="h-9 min-w-48 rounded-lg border border-input bg-card pl-8 pr-3 text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              onChange={(event) => setAssigneeId(event.target.value)}
+              className="h-10 w-[230px] rounded-md border border-input bg-background pl-8 pr-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
             >
               <option value="">Tất cả phụ trách</option>
-              {(adminAccounts ?? []).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.fullName ?? a.id}
+              {(assigneeAccounts ?? []).map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.fullName || account.username || account.email || account.id}
                 </option>
               ))}
             </select>
@@ -231,9 +246,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-6">
         {isLoading ? (
-          Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-28" />)
+          Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14" />)
         ) : (
           <>
             <StatCard label="Tổng doanh nghiệp" value={total} icon={Building2} iconCls="bg-primary/10 text-primary" trend={data?.businesses.newInPeriod} />
@@ -241,13 +256,13 @@ export default function DashboardPage() {
             <StatCard label="Dùng thử" value={data?.businesses.trial ?? 0} icon={FlaskConical} iconCls="bg-sky-500/10 text-sky-600" sub={total > 0 ? `${Math.round(((data?.businesses.trial ?? 0) / total) * 100)}%` : undefined} />
             <StatCard label="Chờ kích hoạt" value={data?.businesses.pending ?? 0} icon={Activity} iconCls="bg-amber-500/10 text-amber-600" />
             <StatCard label="Ngừng / Khóa" value={`${data?.businesses.inactive ?? 0} / ${data?.businesses.suspended ?? 0}`} icon={Building2} iconCls="bg-slate-500/10 text-slate-500" />
-            <StatCard label="Tài khoản" value={data?.accounts.total ?? 0} icon={Users} iconCls="bg-violet-500/10 text-violet-600" trend={data?.accounts.newInPeriod} />
+            <StatCard label="Tài khoản" value={data?.accounts?.total ?? 0} icon={Users} iconCls="bg-violet-500/10 text-violet-600" trend={data?.accounts?.newInPeriod} />
           </>
         )}
       </div>
 
       <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-8 bg-card border border-border rounded-xl p-5">
+        <div className="col-span-8 flex flex-col rounded-lg border border-border bg-card p-4">
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="text-sm font-semibold text-foreground">Tăng trưởng doanh nghiệp</h2>
@@ -255,31 +270,35 @@ export default function DashboardPage() {
             </div>
             <Activity size={15} className="text-muted-foreground" />
           </div>
-          {isLoading ? <Skeleton className="h-56" /> : areaData.length === 0 ? (
-            <div className="h-56 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+          {isLoading ? <Skeleton className="flex-1 min-h-[180px]" /> : areaData.length === 0 ? (
+            <div className="flex flex-1 min-h-[180px] flex-col items-center justify-center gap-2 text-muted-foreground">
               <TrendingUp size={28} className="opacity-20" />
               <p className="text-sm">Chưa có doanh nghiệp nào trong kỳ này</p>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={224}>
-              <AreaChart data={areaData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="hsl(var(--border))" />
-                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--border))" allowDecimals={false} />
-                <Tooltip content={<ChartTip />} />
-                <Area type="monotone" dataKey="Doanh nghiệp" stroke="#1A7AE8" strokeWidth={2} fill="#1A7AE820" dot={{ r: 4, fill: '#1A7AE8', strokeWidth: 0 }} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <div className="relative flex-1 min-h-[180px]">
+              <div className="absolute inset-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={areaData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--border))" interval={Math.max(0, Math.ceil(areaData.length / 7) - 1)} />
+                    <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--border))" allowDecimals={false} domain={[0, 'auto']} />
+                    <Tooltip content={<ChartTip />} />
+                    <Area type="monotone" dataKey="Doanh nghiệp" stroke="#1A7AE8" strokeWidth={2} fill="#1A7AE820" dot={{ r: 4, fill: '#1A7AE8', strokeWidth: 0 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           )}
         </div>
 
-        <div className="col-span-4 bg-card border border-border rounded-xl p-5">
+        <div className="col-span-4 flex flex-col rounded-lg border border-border bg-card p-4">
           <div className="mb-5">
             <h2 className="text-sm font-semibold text-foreground">Phân bổ trạng thái</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Tỉ lệ theo trạng thái doanh nghiệp</p>
           </div>
           {isLoading ? <Skeleton className="h-56" /> : total === 0 ? (
-            <div className="h-56 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+            <div className="flex h-56 flex-col items-center justify-center gap-2 text-muted-foreground">
               <Building2 size={28} className="opacity-20" />
               <p className="text-sm">Chưa có dữ liệu</p>
             </div>
@@ -295,7 +314,7 @@ export default function DashboardPage() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-2xl font-bold text-foreground">{total}</span>
+                  <span className="text-xl font-bold text-foreground">{total}</span>
                   <span className="text-xs text-muted-foreground">tổng</span>
                 </div>
               </div>
@@ -319,25 +338,27 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-4 bg-card border border-border rounded-xl p-5">
+        <div className="col-span-4 flex min-h-[248px] flex-col rounded-lg border border-border bg-card p-4">
           <div className="mb-5">
             <h2 className="text-sm font-semibold text-foreground">Phân bổ gói dịch vụ</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Số doanh nghiệp theo gói đăng ký</p>
           </div>
-          {isLoading ? <Skeleton className="h-44" /> : planData.length === 0 ? (
-            <div className="h-44 flex items-center justify-center text-sm text-muted-foreground">Chưa có dữ liệu</div>
+          {isLoading ? <Skeleton className="h-44 flex-1" /> : planData.length === 0 ? (
+            <div className="flex min-h-44 flex-1 items-end justify-center pb-6 text-sm text-muted-foreground">Chưa có dữ liệu</div>
           ) : (
-            <ResponsiveContainer width="100%" height={176}>
+            <div className="mt-auto h-44">
+            <ResponsiveContainer width="100%" height="100%">
               <BarChart data={planData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="hsl(var(--border))" />
-                <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--border))" allowDecimals={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--border))" />
+                <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--border))" allowDecimals={false} domain={[0, 'auto']} />
                 <Tooltip content={<ChartTip />} />
                 <Bar dataKey="total" name="Doanh nghiệp" radius={[4, 4, 0, 0]}>
                   {planData.map((p, i) => <Cell key={i} fill={p.fill} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            </div>
           )}
         </div>
 
@@ -348,7 +369,7 @@ export default function DashboardPage() {
           </div>
           <div className="divide-y divide-border">
             {isLoading ? (
-              <div className="p-5 space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
+              <div className="p-4 space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
             ) : !data?.recentBusinesses?.length ? (
               <div className="px-5 py-8 text-center">
                 <Building2 size={24} className="mx-auto mb-2 text-muted-foreground/30" />
@@ -381,7 +402,7 @@ export default function DashboardPage() {
           </div>
           <div className="divide-y divide-border">
             {isLoading ? (
-              <div className="p-5 space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
+              <div className="p-4 space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
             ) : !data?.recentAccounts?.length ? (
               <div className="px-5 py-8 text-center">
                 <Users size={24} className="mx-auto mb-2 text-muted-foreground/30" />
