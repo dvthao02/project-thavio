@@ -11,12 +11,12 @@ import { useAuthStore } from '@/stores/auth.store';
 
 function AccountMenu() {
   const router = useRouter();
-  const { user, clearAuth } = useAuthStore();
+  const { user, roleNames, clearAuth } = useAuthStore();
   const [open, setOpen] = useState(false);
 
   const displayName = user?.fullName ?? user?.email ?? 'Quản trị viên';
   const initials = displayName.slice(0, 2);
-  const roleLabel = user?.isPlatformAdmin ? 'Quản trị nền tảng' : 'Quản trị viên';
+  const roleLabel = roleNames.length > 0 ? roleNames.join(', ') : 'Platform User';
 
   async function logout() {
     setOpen(false);
@@ -38,7 +38,7 @@ function AccountMenu() {
         </div>
         <div className="hidden min-w-0 sm:block">
           <p className="max-w-[180px] truncate text-sm font-medium text-foreground">{displayName}</p>
-          <p className="text-xs text-muted-foreground">{roleLabel}</p>
+          <p className="max-w-[180px] truncate text-xs text-muted-foreground">{roleLabel}</p>
         </div>
         <ChevronDown size={15} className={cn('text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>
@@ -105,7 +105,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     api.get('/platform/auth/me')
-      .then((r) => setPermissions(r.data.permissions ?? []))
+      .then((r) => setPermissions(r.data.permissions ?? [], r.data.roleNames ?? []))
       .catch(() => undefined);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);

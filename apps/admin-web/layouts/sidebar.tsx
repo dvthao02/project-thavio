@@ -46,46 +46,46 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Tổng quan',
     items: [
-      { href: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard, permission: 'platform.dashboard.view' },
-      { href: '/alerts', label: 'Cảnh báo & SLA', icon: AlertTriangle },
-      { href: '/audit-logs', label: 'Nhật ký hoạt động', icon: FileClock, permission: 'platform.audit.view' },
+      { href: '/dashboard',   label: 'Tổng quan',            icon: LayoutDashboard, permission: 'platform.dashboard.view' },
+      { href: '/alerts',      label: 'Cảnh báo & SLA',       icon: AlertTriangle,   permission: 'platform.alert.view' },
+      { href: '/audit-logs',  label: 'Nhật ký hoạt động',    icon: FileClock,       permission: 'platform.audit.view' },
     ],
   },
   {
     label: 'Doanh nghiệp',
     items: [
-      { href: '/businesses', label: 'Danh sách doanh nghiệp', icon: Building2, permission: 'platform.business.view' },
-      { href: '/businesses/new', label: 'Tạo doanh nghiệp', icon: PlusCircle, permission: 'platform.business.create' },
-      { href: '/subscriptions/trials', label: 'Dùng thử & gia hạn', icon: RotateCcw },
-      { href: '/subscriptions/plans', label: 'Gói dịch vụ', icon: Package },
-      { href: '/billing/invoices', label: 'Hợp đồng & hóa đơn', icon: ReceiptText },
+      { href: '/businesses',            label: 'Danh sách doanh nghiệp', icon: Building2,  permission: 'platform.business.view' },
+      { href: '/businesses/new',        label: 'Tạo doanh nghiệp',       icon: PlusCircle, permission: 'platform.business.create' },
+      { href: '/subscriptions/trials',  label: 'Dùng thử & gia hạn',     icon: RotateCcw,  permission: 'platform.subscription.view' },
+      { href: '/subscriptions/plans',   label: 'Gói dịch vụ',            icon: Package,    permission: 'platform.subscription.view' },
+      { href: '/billing/invoices',      label: 'Hợp đồng & hóa đơn',     icon: ReceiptText, permission: 'platform.billing.view' },
     ],
   },
   {
     label: 'Tài khoản & RBAC',
     items: [
-      { href: '/accounts', label: 'Tài khoản nền tảng', icon: Users, permission: 'platform.account.view' },
-      { href: '/rbac/roles', label: 'Vai trò nền tảng', icon: ShieldCheck, permission: 'platform.rbac.view' },
-      { href: '/rbac/permissions', label: 'Phân quyền', icon: KeyRound, permission: 'platform.rbac.view' },
-      { href: '/sessions', label: 'Phiên đăng nhập', icon: Monitor },
-      { href: '/security/devices', label: 'MFA & thiết bị', icon: Smartphone },
+      { href: '/accounts',         label: 'Tài khoản nền tảng', icon: Users,       permission: 'platform.account.view' },
+      { href: '/rbac/roles',       label: 'Vai trò nền tảng',   icon: ShieldCheck, permission: 'platform.rbac.view' },
+      { href: '/rbac/permissions', label: 'Phân quyền',          icon: KeyRound,    permission: 'platform.rbac.view' },
+      { href: '/sessions',         label: 'Phiên đăng nhập',     icon: Monitor,     permission: 'platform.session.view' },
+      { href: '/security/devices', label: 'MFA & thiết bị',      icon: Smartphone,  permission: 'platform.security.view' },
     ],
   },
   {
     label: 'Vận hành',
     items: [
-      { href: '/operations/assignees', label: 'Nhân viên phụ trách', icon: UserCheck },
-      { href: '/support/tickets', label: 'Yêu cầu hỗ trợ', icon: LifeBuoy },
-      { href: '/billing/reconciliation', label: 'Đối soát thanh toán', icon: Landmark },
-      { href: '/support/impersonation', label: 'Hỗ trợ truy cập', icon: UserCog },
+      { href: '/operations/assignees',    label: 'Nhân viên phụ trách', icon: UserCheck, permission: 'platform.operation.view' },
+      { href: '/support/tickets',         label: 'Yêu cầu hỗ trợ',     icon: LifeBuoy,  permission: 'platform.support_ticket.view' },
+      { href: '/billing/reconciliation',  label: 'Đối soát thanh toán', icon: Landmark,  permission: 'platform.billing.view' },
+      { href: '/support/impersonation',   label: 'Hỗ trợ truy cập',     icon: UserCog,   permission: 'platform.support.impersonate' },
     ],
   },
   {
     label: 'Cấu hình',
     items: [
-      { href: '/settings/catalogs', label: 'Danh mục', icon: Tags },
-      { href: '/integrations/webhooks', label: 'Tích hợp & Webhook', icon: Webhook },
-      { href: '/settings/security', label: 'Bảo mật', icon: LockKeyhole },
+      { href: '/settings/catalogs',      label: 'Danh mục',           icon: Tags,      permission: 'platform.settings.view' },
+      { href: '/integrations/webhooks',  label: 'Tích hợp & Webhook', icon: Webhook,   permission: 'platform.integration.view' },
+      { href: '/settings/security',      label: 'Bảo mật',            icon: LockKeyhole, permission: 'platform.settings.view' },
     ],
   },
 ];
@@ -98,10 +98,9 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const { user, permissions } = useAuthStore();
+  const { permissions } = useAuthStore();
 
   const canView = (item: NavItem): boolean => {
-    if (user?.isPlatformAdmin) return true;
     if (!item.permission) return true;
     return permissions.includes(item.permission);
   };

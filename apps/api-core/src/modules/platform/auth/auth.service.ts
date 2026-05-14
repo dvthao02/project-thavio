@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { eq, or } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
 import { PlatformDbService } from '@common/database/platform-db.service';
-import { accounts, auditEvents, accountRoleBindings, rolePermissions, permissions } from '@schema/platform';
+import { accounts, auditEvents, accountRoleBindings, rolePermissions, permissions, roles } from '@schema/platform';
 import type { LoginDto } from './dto/login.dto';
 
 interface AuthAuditMeta extends Record<string, unknown> {
@@ -137,16 +137,24 @@ export class AuthService {
 
     if (!account) throw new UnauthorizedException();
 
-    const perms = await this.platformDb.db
-      .selectDistinct({ permissionKey: permissions.permissionKey })
-      .from(accountRoleBindings)
-      .innerJoin(rolePermissions, eq(rolePermissions.roleId, accountRoleBindings.roleId))
-      .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
-      .where(eq(accountRoleBindings.accountId, accountId));
+    const [perms, roleRows] = await Promise.all([
+      this.platformDb.db
+        .selectDistinct({ permissionKey: permissions.permissionKey })
+        .from(accountRoleBindings)
+        .innerJoin(rolePermissions, eq(rolePermissions.roleId, accountRoleBindings.roleId))
+        .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
+        .where(eq(accountRoleBindings.accountId, accountId)),
+      this.platformDb.db
+        .selectDistinct({ roleName: roles.roleName })
+        .from(accountRoleBindings)
+        .innerJoin(roles, eq(roles.id, accountRoleBindings.roleId))
+        .where(eq(accountRoleBindings.accountId, accountId)),
+    ]);
 
     return {
       ...account,
       permissions: perms.map((p) => p.permissionKey),
+      roleNames: roleRows.map((r) => r.roleName),
     };
   }
 }
