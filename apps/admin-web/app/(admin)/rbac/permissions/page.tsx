@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, KeyRound, Search, ShieldCheck, X, Crown } from 'lucide-react';
+import { Building2, KeyRound, Search, ShieldCheck, X, Crown, Info } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface Permission {
@@ -39,6 +39,7 @@ function PermissionRolesModal({ permission, onClose }: { permission: Permission;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl">
+        {/* Header */}
         <div className="flex items-start justify-between border-b border-border px-5 py-4">
           <div className="min-w-0 flex-1 pr-4">
             <p className="text-sm font-semibold text-foreground">{permission.permissionName}</p>
@@ -53,6 +54,15 @@ function PermissionRolesModal({ permission, onClose }: { permission: Permission;
           </button>
         </div>
 
+        {/* Description */}
+        {permission.description && (
+          <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg bg-muted/40 px-3 py-2.5">
+            <Info size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
+            <p className="text-xs text-muted-foreground leading-relaxed">{permission.description}</p>
+          </div>
+        )}
+
+        {/* Roles list */}
         <div className="px-5 py-4">
           <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Vai trò đang có quyền này
@@ -119,7 +129,11 @@ export default function PermissionsPage() {
       .map((m) => ({
         ...m,
         permissions: m.permissions.filter((p) => {
-          const matchSearch = !q || p.permissionKey.toLowerCase().includes(q) || p.permissionName.toLowerCase().includes(q);
+          const matchSearch =
+            !q ||
+            p.permissionKey.toLowerCase().includes(q) ||
+            p.permissionName.toLowerCase().includes(q) ||
+            (p.description?.toLowerCase().includes(q) ?? false);
           const matchUnused = !onlyUnused || p.roleCount === 0;
           return matchSearch && matchUnused;
         }),
@@ -128,7 +142,8 @@ export default function PermissionsPage() {
   }, [data, search, onlyUnused]);
 
   const totalShown = modules.reduce((s, m) => s + m.permissions.length, 0);
-  const unusedCount = data?.modules.reduce((s, m) => s + m.permissions.filter((p) => p.roleCount === 0).length, 0) ?? 0;
+  const unusedCount =
+    data?.modules.reduce((s, m) => s + m.permissions.filter((p) => p.roleCount === 0).length, 0) ?? 0;
 
   return (
     <div className="space-y-5">
@@ -158,7 +173,9 @@ export default function PermissionsPage() {
             </button>
           )}
           <div className="rounded-lg border border-border bg-card px-3 py-1.5 text-center min-w-[64px]">
-            <p className="text-2xl font-bold text-foreground">{isLoading ? '—' : (search || onlyUnused ? totalShown : (data?.total ?? 0))}</p>
+            <p className="text-2xl font-bold text-foreground">
+              {isLoading ? '—' : search || onlyUnused ? totalShown : (data?.total ?? 0)}
+            </p>
             <p className="text-xs text-muted-foreground">{search || onlyUnused ? 'kết quả' : 'tổng quyền'}</p>
           </div>
         </div>
@@ -190,7 +207,7 @@ export default function PermissionsPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Tìm quyền theo tên hoặc key..."
+            placeholder="Tìm theo tên, key hoặc mô tả..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full rounded-md border border-border bg-card py-2 pl-9 pr-4 text-sm outline-none focus:ring-2 focus:ring-primary/30"
@@ -211,7 +228,7 @@ export default function PermissionsPage() {
               <div className="mb-3 h-4 w-28 animate-pulse rounded bg-muted" />
               <div className="space-y-2">
                 {Array.from({ length: 3 }).map((__, j) => (
-                  <div key={j} className="h-9 animate-pulse rounded bg-muted" />
+                  <div key={j} className="h-12 animate-pulse rounded bg-muted" />
                 ))}
               </div>
             </div>
@@ -243,17 +260,20 @@ export default function PermissionsPage() {
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => scope === 'platform' ? setSelectedPermission(p) : undefined}
-                    className={`flex w-full items-center gap-4 px-4 py-2.5 text-left transition-colors ${
+                    onClick={() => (scope === 'platform' ? setSelectedPermission(p) : undefined)}
+                    className={`flex w-full items-start gap-4 px-4 py-3 text-left transition-colors ${
                       scope === 'platform' ? 'hover:bg-muted/30 cursor-pointer' : 'cursor-default'
                     }`}
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground">{p.permissionName}</p>
                       <code className="text-[11px] text-muted-foreground">{p.permissionKey}</code>
+                      {p.description && (
+                        <p className="mt-0.5 text-xs text-muted-foreground/70 line-clamp-1">{p.description}</p>
+                      )}
                     </div>
                     {scope === 'platform' && (
-                      <div className="shrink-0">
+                      <div className="shrink-0 mt-0.5">
                         {p.roleCount > 0 ? (
                           <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                             {p.roleCount} vai trò
