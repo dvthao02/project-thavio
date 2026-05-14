@@ -61,6 +61,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    if (!account.isPlatformAdmin) {
+      await this.writeAuthEvent({
+        accountId: account.id,
+        eventType: 'platform_login_failed',
+        objectId: account.id,
+        payload: { reason: 'not_platform_admin', identifier, ...meta },
+      });
+      throw new UnauthorizedException('Access denied');
+    }
+
     if (account.status !== 'active') {
       await this.writeAuthEvent({
         accountId: account.id,
