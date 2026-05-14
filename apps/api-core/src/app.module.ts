@@ -13,6 +13,7 @@ import { DashboardModule } from '@modules/platform/dashboard/dashboard.module';
 import { AuditLogsModule } from '@modules/platform/audit-logs/audit-logs.module';
 import { AlertsModule } from '@modules/platform/alerts/alerts.module';
 import { SubscriptionModule } from '@modules/business/subscription/subscription.module';
+import { RbacModule } from '@modules/platform/rbac/rbac.module';
 import { env } from '@config/env';
 
 @Module({
@@ -26,6 +27,7 @@ import { env } from '@config/env';
     AuditLogsModule,
     AlertsModule,
     SubscriptionModule,
+    RbacModule,
   ],
   providers: [
     PlatformMiddleware,
