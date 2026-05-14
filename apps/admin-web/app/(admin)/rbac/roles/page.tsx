@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Building2, ChevronRight, Plus, ShieldCheck, Users, X } from 'lucide-react';
+import { Building2, ChevronRight, Loader2, Plus, Search, ShieldCheck, Users, X } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface Role {
@@ -17,6 +17,20 @@ interface Role {
   permissionCount: number;
   accountCount: number;
   createdAt: string;
+}
+
+interface Permission {
+  id: string;
+  permissionKey: string;
+  permissionName: string;
+  moduleKey: string;
+  description: string | null;
+}
+
+interface PermModule {
+  moduleKey: string;
+  count: number;
+  permissions: Permission[];
 }
 
 const SCOPE_META: Record<string, { label: string; cls: string }> = {
@@ -41,6 +55,8 @@ export default function RolesPage() {
   const [scope, setScope] = useState<'all' | 'platform' | 'business'>('all');
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState(DEFAULT_FORM);
+  const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set());
+  const [permSearch, setPermSearch] = useState('');
   const qc = useQueryClient();
 
   const { data: roles = [], isLoading, isError } = useQuery<Role[]>({
@@ -48,18 +64,75 @@ export default function RolesPage() {
     queryFn: () => api.get('/platform/rbac/roles').then((r) => r.data),
   });
 
+  const { data: allPermsData, isLoading: permsLoading } = useQuery<{ total: number; modules: PermModule[] }>({
+    queryKey: ['rbac-permissions'],
+    queryFn: () => api.get('/platform/rbac/permissions').then((r) => r.data),
+    enabled: createOpen,
+  });
+
   const createMut = useMutation({
-    mutationFn: (body: typeof form) => api.post('/platform/rbac/roles', body).then((r) => r.data),
+    mutationFn: async (payload: { form: typeof form; permIds: string[] }) => {
+      const created = await api.post('/platform/rbac/roles', payload.form).then((r) => r.data);
+      if (payload.permIds.length > 0) {
+        await Promise.all(
+          payload.permIds.map((permissionId) =>
+            api.post(`/platform/rbac/roles/${created.id}/permissions`, { permissionId })
+          )
+        );
+      }
+      return created;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['rbac-roles'] });
-      setCreateOpen(false);
-      setForm(DEFAULT_FORM);
+      closeCreate();
     },
   });
+
+  const closeCreate = () => {
+    setCreateOpen(false);
+    setForm(DEFAULT_FORM);
+    setSelectedPerms(new Set());
+    setPermSearch('');
+  };
 
   const filtered = scope === 'all' ? roles : roles.filter((r) => r.roleScope === scope);
   const platformCount = roles.filter((r) => r.roleScope === 'platform').length;
   const businessCount = roles.filter((r) => r.roleScope === 'business').length;
+
+  const visibleModules = (allPermsData?.modules ?? [])
+    .map((m) => ({
+      ...m,
+      permissions: permSearch
+        ? m.permissions.filter(
+            (p) =>
+              p.permissionName.toLowerCase().includes(permSearch.toLowerCase()) ||
+              p.permissionKey.toLowerCase().includes(permSearch.toLowerCase())
+          )
+        : m.permissions,
+    }))
+    .filter((m) => m.permissions.length > 0);
+
+  const toggleModule = (modulePerms: Permission[]) => {
+    const allSelected = modulePerms.every((p) => selectedPerms.has(p.id));
+    setSelectedPerms((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        modulePerms.forEach((p) => next.delete(p.id));
+      } else {
+        modulePerms.forEach((p) => next.add(p.id));
+      }
+      return next;
+    });
+  };
+
+  const togglePerm = (id: string) => {
+    setSelectedPerms((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-5">
@@ -208,72 +281,179 @@ export default function RolesPage() {
         </table>
       </div>
 
+      {/* Create modal — 2 columns */}
       {createOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl">
-            <div className="mb-5 flex items-center justify-between">
+          <div className="flex w-full max-w-3xl flex-col rounded-lg border border-border bg-background shadow-xl" style={{ maxHeight: '90vh' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h3 className="text-base font-semibold text-foreground">Tạo vai trò mới</h3>
-              <button onClick={() => { setCreateOpen(false); setForm(DEFAULT_FORM); }} className="text-muted-foreground hover:text-foreground">
+              <button onClick={closeCreate} className="text-muted-foreground hover:text-foreground">
                 <X size={18} />
               </button>
             </div>
-            <div className="space-y-4">
-              <Field label="Tên vai trò *">
-                <input
-                  className={INPUT}
-                  value={form.roleName}
-                  onChange={(e) => setForm((f) => ({ ...f, roleName: e.target.value }))}
-                  placeholder="Quản trị viên"
-                />
-              </Field>
-              <Field label="Role Key *">
-                <input
-                  className={INPUT}
-                  value={form.roleKey}
-                  onChange={(e) => setForm((f) => ({ ...f, roleKey: e.target.value.toLowerCase() }))}
-                  placeholder="platform.admin"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">Chỉ chữ thường, số, dấu chấm, gạch ngang, gạch dưới</p>
-              </Field>
-              <Field label="Phạm vi *">
-                <select
-                  className={INPUT}
-                  value={form.roleScope}
-                  onChange={(e) => setForm((f) => ({ ...f, roleScope: e.target.value as 'platform' | 'business' }))}
-                >
-                  <option value="platform">Platform</option>
-                  <option value="business">Business</option>
-                </select>
-              </Field>
-              <Field label="Mô tả">
-                <textarea
-                  className={INPUT}
-                  rows={2}
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  placeholder="Mô tả vai trò..."
-                />
-              </Field>
+
+            {/* Body */}
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              {/* Left: role info */}
+              <div className="w-80 shrink-0 overflow-y-auto border-r border-border p-6">
+                <div className="space-y-4">
+                  <Field label="Tên vai trò *">
+                    <input
+                      className={INPUT}
+                      value={form.roleName}
+                      onChange={(e) => setForm((f) => ({ ...f, roleName: e.target.value }))}
+                      placeholder="Quản trị viên"
+                    />
+                  </Field>
+                  <Field label="Role Key *">
+                    <input
+                      className={INPUT}
+                      value={form.roleKey}
+                      onChange={(e) => setForm((f) => ({ ...f, roleKey: e.target.value.toLowerCase() }))}
+                      placeholder="platform.admin"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">Chỉ chữ thường, số, dấu chấm, gạch ngang, gạch dưới</p>
+                  </Field>
+                  <Field label="Phạm vi *">
+                    <select
+                      className={INPUT}
+                      value={form.roleScope}
+                      onChange={(e) => setForm((f) => ({ ...f, roleScope: e.target.value as 'platform' | 'business' }))}
+                    >
+                      <option value="platform">Platform</option>
+                      <option value="business">Business</option>
+                    </select>
+                  </Field>
+                  <Field label="Mô tả">
+                    <textarea
+                      className={INPUT}
+                      rows={3}
+                      value={form.description}
+                      onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                      placeholder="Mô tả vai trò..."
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              {/* Right: permission picker */}
+              <div className="flex flex-1 flex-col overflow-hidden">
+                <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                  <p className="text-sm font-medium text-foreground">
+                    Quyền hạn
+                    {selectedPerms.size > 0 && (
+                      <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                        {selectedPerms.size} đã chọn
+                      </span>
+                    )}
+                  </p>
+                  {selectedPerms.size > 0 && (
+                    <button
+                      onClick={() => setSelectedPerms(new Set())}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Bỏ chọn tất cả
+                    </button>
+                  )}
+                </div>
+                <div className="border-b border-border px-4 py-2">
+                  <div className="relative">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm quyền..."
+                      value={permSearch}
+                      onChange={(e) => setPermSearch(e.target.value)}
+                      className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4">
+                  {permsLoading ? (
+                    <div className="flex h-24 items-center justify-center">
+                      <Loader2 size={20} className="animate-spin text-muted-foreground" />
+                    </div>
+                  ) : visibleModules.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">
+                      {permSearch ? 'Không tìm thấy quyền phù hợp.' : 'Không có quyền nào.'}
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      {visibleModules.map((m) => {
+                        const allChecked = m.permissions.every((p) => selectedPerms.has(p.id));
+                        const someChecked = !allChecked && m.permissions.some((p) => selectedPerms.has(p.id));
+                        return (
+                          <div key={m.moduleKey}>
+                            {/* Module header with select-all */}
+                            <label className="flex cursor-pointer items-center gap-2.5 rounded-md bg-muted/50 px-2.5 py-2">
+                              <input
+                                type="checkbox"
+                                checked={allChecked}
+                                ref={(el) => { if (el) el.indeterminate = someChecked; }}
+                                onChange={() => toggleModule(m.permissions)}
+                                className="rounded"
+                              />
+                              <span className="text-xs font-semibold uppercase tracking-wider text-foreground">
+                                {m.moduleKey}
+                              </span>
+                              <span className="ml-auto text-xs text-muted-foreground">
+                                {m.permissions.filter((p) => selectedPerms.has(p.id)).length}/{m.permissions.length}
+                              </span>
+                            </label>
+                            {/* Individual permissions */}
+                            <div className="ml-4 mt-1 space-y-0.5">
+                              {m.permissions.map((p) => (
+                                <label
+                                  key={p.id}
+                                  className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/40"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedPerms.has(p.id)}
+                                    onChange={() => togglePerm(p.id)}
+                                    className="rounded"
+                                  />
+                                  <div className="min-w-0">
+                                    <p className="text-sm text-foreground">{p.permissionName}</p>
+                                    <code className="text-xs text-muted-foreground">{p.permissionKey}</code>
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            {createMut.isError && (
-              <p className="mt-3 text-xs text-destructive">
-                {(createMut.error as any)?.response?.data?.message ?? 'Lỗi khi tạo vai trò.'}
-              </p>
-            )}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                onClick={() => { setCreateOpen(false); setForm(DEFAULT_FORM); }}
-                className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={() => createMut.mutate(form)}
-                disabled={createMut.isPending || !form.roleKey || !form.roleName}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
-              >
-                {createMut.isPending ? 'Đang tạo...' : 'Tạo vai trò'}
-              </button>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-border px-6 py-4">
+              {createMut.isError ? (
+                <p className="text-xs text-destructive">
+                  {(createMut.error as any)?.response?.data?.message ?? 'Lỗi khi tạo vai trò.'}
+                </p>
+              ) : (
+                <span />
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={closeCreate}
+                  className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={() => createMut.mutate({ form, permIds: Array.from(selectedPerms) })}
+                  disabled={createMut.isPending || !form.roleKey || !form.roleName}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
+                >
+                  {createMut.isPending ? 'Đang tạo...' : 'Tạo vai trò'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
