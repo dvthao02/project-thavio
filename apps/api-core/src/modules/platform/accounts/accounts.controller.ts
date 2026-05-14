@@ -71,14 +71,14 @@ export class AccountsController {
     return this.accountsService.resetPassword(id, newPassword);
   }
 
-  @RequirePermission('platform.rbac.manage')
+  @RequirePermission('platform.role.assign_permission')
   @Post(':id/roles')
   assignRole(@Param('id') id: string, @Body() body: unknown) {
     const dto = AssignRoleSchema.parse(body);
     return this.accountsService.assignRole(id, dto.roleId, dto.scopeType, dto.scopeId);
   }
 
-  @RequirePermission('platform.rbac.manage')
+  @RequirePermission('platform.role.assign_permission')
   @Delete(':id/roles/:bindingId')
   removeRole(@Param('id') id: string, @Param('bindingId') bindingId: string) {
     return this.accountsService.removeRole(id, bindingId);

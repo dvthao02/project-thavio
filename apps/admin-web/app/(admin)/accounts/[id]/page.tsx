@@ -8,6 +8,7 @@ import {
   Building2, ChevronLeft, KeyRound, Pencil, RotateCcw, ShieldCheck, Trash2, Users, X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuthStore } from '@/stores/auth.store';
 
 interface RoleBinding {
   bindingId: string;
@@ -71,6 +72,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export default function AccountDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
+  const { permissions } = useAuthStore();
+  const canManageRoles = permissions.includes('platform.role.assign_permission');
 
   const [editOpen, setEditOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -167,9 +170,11 @@ export default function AccountDetailPage() {
             <KeyRound size={16} className="text-muted-foreground" />
             <h2 className="text-sm font-semibold text-foreground">Vai trò ({account.roles.length})</h2>
           </div>
-          <button onClick={() => setAssignOpen(true)} className="inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium hover:bg-muted transition">
-            + Gán vai trò
-          </button>
+          {canManageRoles && (
+            <button onClick={() => setAssignOpen(true)} className="inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium hover:bg-muted transition">
+              + Gán vai trò
+            </button>
+          )}
         </div>
         {account.roles.length === 0 ? (
           <p className="text-sm text-muted-foreground">Chưa có vai trò nào được gán.</p>
@@ -184,13 +189,15 @@ export default function AccountDetailPage() {
                     <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{r.scopeType}</span>
                   </div>
                 </div>
-                <button
-                  onClick={() => removeMut.mutate(r.bindingId)}
-                  disabled={removeMut.isPending}
-                  className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition"
-                >
-                  <Trash2 size={14} />
-                </button>
+                {canManageRoles && (
+                  <button
+                    onClick={() => removeMut.mutate(r.bindingId)}
+                    disabled={removeMut.isPending}
+                    className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
             ))}
           </div>

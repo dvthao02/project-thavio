@@ -20,9 +20,6 @@ export class PlatformPermissionGuard implements CanActivate {
     const platformUser = request.platformUser;
     if (!platformUser) return false;
 
-    // Platform owner (isPlatformAdmin flag) bypasses all permission checks
-    if (platformUser.isPlatformAdmin) return true;
-
     const rows = await this.platformDb.db
       .select({ permissionKey: permissions.permissionKey })
       .from(accountRoleBindings)
