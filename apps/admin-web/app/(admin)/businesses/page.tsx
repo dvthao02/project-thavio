@@ -48,12 +48,6 @@ interface ListResponse {
   meta: { page: number; limit: number; total: number; totalPages: number };
 }
 
-const ASSIGNEES = [
-  { id: 'minh-anh', fullName: 'Nguyễn Minh Anh', email: 'minhanh@thavio.vn' },
-  { id: 'quoc-bao', fullName: 'Trần Quốc Bảo', email: 'quocbao@thavio.vn' },
-  { id: 'thu-ha', fullName: 'Phạm Thu Hà', email: 'thuha@thavio.vn' },
-  { id: 'hoai-nam', fullName: 'Lê Hoài Nam', email: 'hoainam@thavio.vn' },
-];
 
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
   active: { label: 'Active', cls: 'bg-emerald-500/10 text-emerald-700' },
@@ -97,10 +91,6 @@ function diffDays(to: Date) {
   return Math.ceil((end.getTime() - start.getTime()) / 86_400_000);
 }
 
-function stableIndex(value: string, size: number) {
-  return value.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) % size;
-}
-
 function normalizeSubscriptionStatus(b: Business): SubscriptionStatus {
   if (b.subscriptionStatus === 'trial') return 'trialing';
   if (
@@ -125,8 +115,8 @@ function enrichBusiness(b: Business) {
   const trialEndsAt =
     b.trialEndsAt ?? (subscriptionStatus === 'trialing' ? addDays(new Date(b.trialStartedAt ?? b.createdAt), 10).toISOString() : null);
   const trialDaysLeft = b.trialDaysLeft ?? (trialEndsAt ? diffDays(new Date(trialEndsAt)) : null);
-  const assignedAccount = b.assignedAccount ?? ASSIGNEES[stableIndex(b.businessCode, ASSIGNEES.length)];
-  const firstStore = b.firstStore ?? { storeCode: 'STORE001', storeName: 'Chi nhánh chính' };
+  const assignedAccount = b.assignedAccount ?? null;
+  const firstStore = b.firstStore ?? null;
 
   return {
     ...b,
@@ -206,11 +196,20 @@ export default function BusinessesPage() {
   });
 
   const enriched = useMemo(() => (data?.data ?? []).map(enrichBusiness), [data?.data]);
+
+  const assigneeOptions = useMemo(() => {
+    const map = new Map<string, { id: string; fullName: string }>();
+    for (const b of enriched) {
+      if (b.assignedAccount) map.set(b.assignedAccount.id, b.assignedAccount);
+    }
+    return Array.from(map.values());
+  }, [enriched]);
+
   const filtered = useMemo(
     () =>
       enriched.filter((b) => {
         if (subscriptionStatus && b.subscriptionStatus !== subscriptionStatus) return false;
-        if (assigneeId && b.assignedAccount.id !== assigneeId) return false;
+        if (assigneeId && b.assignedAccount?.id !== assigneeId) return false;
         return matchesTrialFilter(b, trial);
       }),
     [assigneeId, enriched, subscriptionStatus, trial],
@@ -223,8 +222,9 @@ export default function BusinessesPage() {
     const expiring = enriched.filter((b) => b.subscriptionStatus === 'trialing' && (b.trialDaysLeft ?? 99) >= 0 && (b.trialDaysLeft ?? 99) <= 2).length;
     const paid = enriched.filter((b) => b.subscriptionStatus === 'active').length;
     const suspended = enriched.filter((b) => b.status === 'suspended' || b.subscriptionStatus === 'suspended').length;
-    return { total, active, trialing, expiring, paid, suspended };
-  }, [enriched]);
+    const assigneeCount = assigneeOptions.length;
+    return { total, active, trialing, expiring, paid, suspended, assigneeCount };
+  }, [enriched, assigneeOptions]);
 
   const total = data?.meta.total ?? 0;
 
@@ -258,7 +258,7 @@ export default function BusinessesPage() {
         <StatCard label="Trial 10 ngày" value={stats.trialing} sub={`${stats.expiring} sắp hết hạn`} icon={Clock3} tone="bg-sky-500/10 text-sky-700" />
         <StatCard label="Đã trả phí" value={stats.paid} sub="subscription active" icon={RefreshCw} tone="bg-cyan-500/10 text-cyan-700" />
         <StatCard label="Suspended" value={stats.suspended} sub="Hết trial / quá hạn" icon={AlertTriangle} tone="bg-red-500/10 text-red-700" />
-        <StatCard label="Phụ trách" value={ASSIGNEES.length} sub="platform staff" icon={UserCheck} tone="bg-slate-500/10 text-slate-600" />
+        <StatCard label="Phụ trách" value={stats.assigneeCount} sub="platform staff" icon={UserCheck} tone="bg-slate-500/10 text-slate-600" />
       </div>
 
       <div className="bg-card border border-border rounded-lg p-4">
@@ -321,7 +321,7 @@ export default function BusinessesPage() {
             className="text-sm border border-input rounded-md bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring text-foreground"
           >
             <option value="">Tất cả nhân viên</option>
-            {ASSIGNEES.map((a) => (
+            {assigneeOptions.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.fullName}
               </option>
@@ -424,19 +424,23 @@ export default function BusinessesPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[11px] font-semibold text-muted-foreground">
-                            {b.assignedAccount.fullName
-                              .split(' ')
-                              .slice(-2)
-                              .map((part) => part[0])
-                              .join('')}
+                        {b.assignedAccount ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[11px] font-semibold text-muted-foreground">
+                              {b.assignedAccount.fullName
+                                .split(' ')
+                                .slice(-2)
+                                .map((part) => part[0])
+                                .join('')}
+                            </div>
+                            <span className="text-xs text-foreground whitespace-nowrap">{b.assignedAccount.fullName}</span>
                           </div>
-                          <span className="text-xs text-foreground whitespace-nowrap">{b.assignedAccount.fullName}</span>
-                        </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">Chưa phân công</span>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
-                        {b.firstStore.storeCode} - {b.firstStore.storeName}
+                        {b.firstStore ? `${b.firstStore.storeCode} - ${b.firstStore.storeName}` : '—'}
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="flex items-center justify-end gap-2">
