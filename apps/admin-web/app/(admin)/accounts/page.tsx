@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Eye, Plus, Search, Shield, ShieldCheck, Users, X } from 'lucide-react';
+import { Eye, Lock, LockOpen, Plus, Search, Shield, ShieldCheck, Users, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
 
@@ -24,9 +24,9 @@ interface ListResponse {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
-  active:   { label: 'Hoạt động',    cls: 'bg-emerald-500/10 text-emerald-700' },
-  locked:   { label: 'Đã khóa',      cls: 'bg-red-500/10 text-red-700' },
-  disabled: { label: 'Vô hiệu hóa',  cls: 'bg-muted text-muted-foreground' },
+  active:   { label: 'Hoạt động',   cls: 'bg-emerald-500/10 text-emerald-700' },
+  locked:   { label: 'Đã khóa',     cls: 'bg-red-500/10 text-red-700' },
+  disabled: { label: 'Vô hiệu hóa', cls: 'bg-muted text-muted-foreground' },
 };
 
 const INPUT = 'w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30';
@@ -42,8 +42,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 const DEFAULT_FORM = { username: '', password: '', fullName: '', email: '', phone: '', isPlatformAdmin: false };
 
+const STATUS_FILTERS = [
+  { key: '', label: 'Tất cả' },
+  { key: 'active', label: 'Hoạt động' },
+  { key: 'locked', label: 'Đã khóa' },
+  { key: 'disabled', label: 'Vô hiệu hóa' },
+] as const;
+
 export default function AccountsPage() {
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState(DEFAULT_FORM);
@@ -52,10 +60,19 @@ export default function AccountsPage() {
   const canCreate = permissions.includes('platform.account.create');
   const canLock = permissions.includes('platform.account.lock');
 
+  useEffect(() => {
+    if (!createOpen) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') closeCreate(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [createOpen]);
+
   const { data, isLoading } = useQuery<ListResponse>({
-    queryKey: ['accounts', { search, page }],
+    queryKey: ['accounts', { search, page, status: statusFilter }],
     queryFn: () =>
-      api.get('/platform/accounts', { params: { search: search || undefined, page, limit: 20 } }).then((r) => r.data),
+      api.get('/platform/accounts', {
+        params: { search: search || undefined, page, limit: 20, status: statusFilter || undefined },
+      }).then((r) => r.data),
     placeholderData: (prev) => prev,
   });
 
@@ -69,10 +86,11 @@ export default function AccountsPage() {
     mutationFn: (body: typeof form) => api.post('/platform/accounts', body).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounts'] });
-      setCreateOpen(false);
-      setForm(DEFAULT_FORM);
+      closeCreate();
     },
   });
+
+  const closeCreate = () => { setCreateOpen(false); setForm(DEFAULT_FORM); };
 
   const total = data?.meta.total ?? 0;
 
@@ -95,15 +113,32 @@ export default function AccountsPage() {
         )}
       </div>
 
-      <div className="relative max-w-xs">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Tìm email hoặc tên đăng nhập…"
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          className="w-full pl-8 pr-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
-        />
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative max-w-xs flex-1">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Tìm email hoặc tên đăng nhập..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            className="w-full pl-8 pr-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+        <div className="inline-flex rounded-md border border-border bg-card p-1">
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => { setStatusFilter(f.key); setPage(1); }}
+              className={`rounded px-3 py-1.5 text-xs font-medium transition ${
+                statusFilter === f.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
@@ -120,7 +155,7 @@ export default function AccountsPage() {
           </thead>
           <tbody className="divide-y divide-border">
             {isLoading ? (
-              Array.from({ length: 3 }).map((_, i) => (
+              Array.from({ length: 4 }).map((_, i) => (
                 <tr key={i}>
                   {Array.from({ length: 6 }).map((__, j) => (
                     <td key={j} className="px-4 py-4"><div className="h-4 animate-pulse rounded bg-muted" /></td>
@@ -129,7 +164,7 @@ export default function AccountsPage() {
               ))
             ) : !data?.data.length ? (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center">
+                <td colSpan={6} className="px-5 py-12 text-center">
                   <Users size={32} className="mx-auto mb-2 text-muted-foreground/40" />
                   <p className="text-sm text-muted-foreground">Không tìm thấy tài khoản</p>
                 </td>
@@ -137,12 +172,13 @@ export default function AccountsPage() {
             ) : (
               data.data.map((a) => {
                 const sc = STATUS_CONFIG[a.status] ?? STATUS_CONFIG.disabled;
+                const initials = (a.fullName ?? a.username).slice(0, 2).toUpperCase();
                 return (
                   <tr key={a.id} className="transition-colors hover:bg-muted/20">
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold uppercase text-primary">
-                          {(a.fullName ?? a.username).slice(0, 2)}
+                          {initials}
                         </div>
                         <div className="min-w-0">
                           <p className="truncate font-medium text-foreground">{a.fullName ?? a.username}</p>
@@ -174,18 +210,26 @@ export default function AccountsPage() {
                       <div className="flex items-center justify-end gap-2">
                         <Link
                           href={`/accounts/${a.id}`}
-                          className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs hover:bg-muted transition"
+                          className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1.5 text-xs font-medium hover:bg-muted transition"
                         >
                           <Eye size={12} /> Chi tiết
                         </Link>
                         {canLock && (
                           a.status === 'active' ? (
-                            <button onClick={() => updateStatus.mutate({ id: a.id, status: 'locked' })} className="text-xs text-red-600 hover:underline">
-                              Khóa
+                            <button
+                              onClick={() => updateStatus.mutate({ id: a.id, status: 'locked' })}
+                              disabled={updateStatus.isPending}
+                              className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition disabled:opacity-50"
+                            >
+                              <Lock size={12} /> Khóa
                             </button>
                           ) : (
-                            <button onClick={() => updateStatus.mutate({ id: a.id, status: 'active' })} className="text-xs text-emerald-600 hover:underline">
-                              Kích hoạt
+                            <button
+                              onClick={() => updateStatus.mutate({ id: a.id, status: 'active' })}
+                              disabled={updateStatus.isPending}
+                              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 px-2 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 transition disabled:opacity-50"
+                            >
+                              <LockOpen size={12} /> Kích hoạt
                             </button>
                           )
                         )}
@@ -204,8 +248,20 @@ export default function AccountsPage() {
               {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} / {total}
             </p>
             <div className="flex gap-2">
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="rounded-md border border-input px-3 py-1.5 text-xs disabled:opacity-40 hover:bg-muted transition">Trước</button>
-              <button onClick={() => setPage((p) => p + 1)} disabled={page >= (data?.meta.totalPages ?? 1)} className="rounded-md border border-input px-3 py-1.5 text-xs disabled:opacity-40 hover:bg-muted transition">Sau</button>
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="rounded-md border border-input px-3 py-1.5 text-xs disabled:opacity-40 hover:bg-muted transition"
+              >
+                Trước
+              </button>
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                disabled={page >= (data?.meta.totalPages ?? 1)}
+                className="rounded-md border border-input px-3 py-1.5 text-xs disabled:opacity-40 hover:bg-muted transition"
+              >
+                Sau
+              </button>
             </div>
           </div>
         )}
@@ -217,7 +273,7 @@ export default function AccountsPage() {
           <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl">
             <div className="mb-5 flex items-center justify-between">
               <h3 className="text-base font-semibold text-foreground">Tạo tài khoản mới</h3>
-              <button onClick={() => setCreateOpen(false)} className="text-muted-foreground hover:text-foreground"><X size={18} /></button>
+              <button onClick={closeCreate} className="text-muted-foreground hover:text-foreground"><X size={18} /></button>
             </div>
             <div className="space-y-4">
               <Field label="Họ tên *">
@@ -248,7 +304,7 @@ export default function AccountsPage() {
               </p>
             )}
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => setCreateOpen(false)} className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition">Hủy</button>
+              <button onClick={closeCreate} className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition">Hủy</button>
               <button
                 onClick={() => createMut.mutate(form)}
                 disabled={createMut.isPending || !form.username || !form.password || !form.fullName}
