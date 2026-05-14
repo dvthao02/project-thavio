@@ -14,12 +14,15 @@ export class PlatformPermissionGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredPermission = this.reflector.get<string>(PERMISSION_KEY, context.getHandler());
-    if (!requiredPermission) return true;
 
     const request = context.switchToHttp().getRequest<{ platformUser?: any }>();
     const platformUser = request.platformUser;
+
+    // No permission required on this endpoint (e.g. /auth/login) — allow without DB query
+    if (!requiredPermission && !platformUser) return true;
     if (!platformUser) return false;
 
+    // Load ALL permissions for this user in one query so controllers can use them for row-level scoping
     const rows = await this.platformDb.db
       .select({ permissionKey: permissions.permissionKey })
       .from(accountRoleBindings)
@@ -29,12 +32,15 @@ export class PlatformPermissionGuard implements CanActivate {
         and(
           eq(accountRoleBindings.accountId, platformUser.sub),
           eq(accountRoleBindings.scopeType, 'platform'),
-          eq(permissions.permissionKey, requiredPermission),
         ),
-      )
-      .limit(1);
+      );
 
-    if (rows.length === 0) {
+    const permSet = new Set(rows.map((r) => r.permissionKey));
+    request.platformUser = { ...platformUser, userPermissions: permSet };
+
+    if (!requiredPermission) return true;
+
+    if (!permSet.has(requiredPermission)) {
       throw new ForbiddenException(`Missing permission: ${requiredPermission}`);
     }
 

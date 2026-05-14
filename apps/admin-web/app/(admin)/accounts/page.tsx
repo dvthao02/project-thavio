@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Eye, Plus, Search, Shield, ShieldCheck, Users, X } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuthStore } from '@/stores/auth.store';
 
 interface Account {
   id: string;
@@ -47,6 +48,9 @@ export default function AccountsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState(DEFAULT_FORM);
   const qc = useQueryClient();
+  const { permissions } = useAuthStore();
+  const canCreate = permissions.includes('platform.account.create');
+  const canLock = permissions.includes('platform.account.lock');
 
   const { data, isLoading } = useQuery<ListResponse>({
     queryKey: ['accounts', { search, page }],
@@ -81,12 +85,14 @@ export default function AccountsPage() {
             {data ? `${total} tài khoản nền tảng` : 'Quản lý tài khoản nền tảng'}
           </p>
         </div>
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition"
-        >
-          <Plus size={16} /> Tạo tài khoản
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition"
+          >
+            <Plus size={16} /> Tạo tài khoản
+          </button>
+        )}
       </div>
 
       <div className="relative max-w-xs">
@@ -172,14 +178,16 @@ export default function AccountsPage() {
                         >
                           <Eye size={12} /> Chi tiết
                         </Link>
-                        {a.status === 'active' ? (
-                          <button onClick={() => updateStatus.mutate({ id: a.id, status: 'locked' })} className="text-xs text-red-600 hover:underline">
-                            Khóa
-                          </button>
-                        ) : (
-                          <button onClick={() => updateStatus.mutate({ id: a.id, status: 'active' })} className="text-xs text-emerald-600 hover:underline">
-                            Kích hoạt
-                          </button>
+                        {canLock && (
+                          a.status === 'active' ? (
+                            <button onClick={() => updateStatus.mutate({ id: a.id, status: 'locked' })} className="text-xs text-red-600 hover:underline">
+                              Khóa
+                            </button>
+                          ) : (
+                            <button onClick={() => updateStatus.mutate({ id: a.id, status: 'active' })} className="text-xs text-emerald-600 hover:underline">
+                              Kích hoạt
+                            </button>
+                          )
                         )}
                       </div>
                     </td>
@@ -204,7 +212,7 @@ export default function AccountsPage() {
       </div>
 
       {/* Modal: Tạo tài khoản */}
-      {createOpen && (
+      {createOpen && canCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl">
             <div className="mb-5 flex items-center justify-between">

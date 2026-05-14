@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { eq, ilike, or, and, count, desc, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
@@ -10,13 +10,18 @@ import type { ListAccountsDto } from './dto/list-accounts.dto';
 export class AccountsService {
   constructor(private readonly platformDb: PlatformDbService) {}
 
-  async list(dto: ListAccountsDto) {
+  async list(dto: ListAccountsDto, scopeAccountId?: string) {
     const { page, limit, status, search, isPlatformAdmin } = dto;
     const offset = (page - 1) * limit;
 
     const db = this.platformDb.db;
 
     const filters: SQL[] = [];
+
+    if (scopeAccountId) {
+      filters.push(eq(accounts.id, scopeAccountId));
+    }
+
     if (status) filters.push(eq(accounts.status, status));
     if (isPlatformAdmin !== undefined) filters.push(eq(accounts.isPlatformAdmin, isPlatformAdmin));
     if (search) {
@@ -57,7 +62,11 @@ export class AccountsService {
     };
   }
 
-  async getOne(id: string) {
+  async getOne(id: string, scopeAccountId?: string) {
+    if (scopeAccountId && scopeAccountId !== id) {
+      throw new ForbiddenException('Access denied');
+    }
+
     const db = this.platformDb.db;
 
     const [account] = await db
@@ -111,7 +120,8 @@ export class AccountsService {
     return { ...account, roles: assignedRoles, businesses: assignedBusinesses };
   }
 
-  async update(id: string, dto: { fullName?: string; email?: string; phone?: string }, actorId?: string) {
+  async update(id: string, dto: { fullName?: string; email?: string; phone?: string }, actorId?: string, scopeAccountId?: string) {
+    if (scopeAccountId && scopeAccountId !== id) throw new ForbiddenException('Access denied');
     const db = this.platformDb.db;
     const [account] = await db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, id)).limit(1);
     if (!account) throw new NotFoundException('Account not found');
@@ -143,7 +153,8 @@ export class AccountsService {
     return this.getOne(id);
   }
 
-  async resetPassword(id: string, newPassword: string) {
+  async resetPassword(id: string, newPassword: string, scopeAccountId?: string) {
+    if (scopeAccountId && scopeAccountId !== id) throw new ForbiddenException('Access denied');
     const db = this.platformDb.db;
     const [account] = await db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, id)).limit(1);
     if (!account) throw new NotFoundException('Account not found');
@@ -234,7 +245,8 @@ export class AccountsService {
     return created;
   }
 
-  async updateStatus(id: string, status: 'active' | 'locked' | 'disabled', actorId?: string) {
+  async updateStatus(id: string, status: 'active' | 'locked' | 'disabled', actorId?: string, scopeAccountId?: string) {
+    if (scopeAccountId && scopeAccountId !== id) throw new ForbiddenException('Access denied');
     const db = this.platformDb.db;
 
     const [account] = await db

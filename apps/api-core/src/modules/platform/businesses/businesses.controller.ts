@@ -12,15 +12,21 @@ export class BusinessesController {
 
   @RequirePermission('platform.business.view')
   @Get()
-  list(@Query() query: unknown) {
+  list(@Query() query: unknown, @Req() req: Request & { platformUser?: any }) {
     const dto = ListBusinessesSchema.parse(query);
-    return this.businessesService.list(dto);
+    const currentAccountId = req.platformUser?.sub as string;
+    const perms = req.platformUser?.userPermissions as Set<string> | undefined;
+    const isFullAdmin = perms?.has('platform.business.create') ?? false;
+    return this.businessesService.list(dto, isFullAdmin ? undefined : currentAccountId);
   }
 
   @RequirePermission('platform.business.view')
   @Get(':id')
-  getOne(@Param('id') id: string) {
-    return this.businessesService.getOne(id);
+  getOne(@Param('id') id: string, @Req() req: Request & { platformUser?: any }) {
+    const currentAccountId = req.platformUser?.sub as string;
+    const perms = req.platformUser?.userPermissions as Set<string> | undefined;
+    const isFullAdmin = perms?.has('platform.business.create') ?? false;
+    return this.businessesService.getOne(id, isFullAdmin ? undefined : currentAccountId);
   }
 
   @RequirePermission('platform.business.create')

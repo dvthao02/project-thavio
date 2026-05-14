@@ -4,13 +4,14 @@ import {
   OnModuleDestroy,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Pool } from 'pg';
-import { eq, ilike, or, count, desc, and, type SQL } from 'drizzle-orm';
+import { eq, ilike, or, count, desc, and, inArray, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { BusinessDbService } from '@common/database/business-db.service';
 import { businesses, businessSubscriptions, accountBusinesses } from '@schema/platform';
@@ -61,11 +62,22 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     await this.adminPool.end();
   }
 
-  async list(dto: ListBusinessesDto) {
+  async list(dto: ListBusinessesDto, scopeAccountId?: string) {
     const { page, limit, status, search } = dto;
     const offset = (page - 1) * limit;
 
     const filters: SQL[] = [];
+
+    if (scopeAccountId) {
+      const assigned = await this.platformDb.db
+        .select({ businessId: accountBusinesses.businessId })
+        .from(accountBusinesses)
+        .where(and(eq(accountBusinesses.accountId, scopeAccountId), eq(accountBusinesses.status, 'active')));
+      const ids = assigned.map((r) => r.businessId).filter(Boolean) as string[];
+      if (ids.length === 0) return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
+      filters.push(inArray(businesses.id, ids));
+    }
+
     if (status) filters.push(eq(businesses.status, status));
     if (search) {
       filters.push(
@@ -200,7 +212,22 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     return map;
   }
 
-  async getOne(id: string) {
+  async getOne(id: string, scopeAccountId?: string) {
+    if (scopeAccountId) {
+      const [access] = await this.platformDb.db
+        .select({ id: accountBusinesses.id })
+        .from(accountBusinesses)
+        .where(
+          and(
+            eq(accountBusinesses.accountId, scopeAccountId),
+            eq(accountBusinesses.businessId, id),
+            eq(accountBusinesses.status, 'active'),
+          ),
+        )
+        .limit(1);
+      if (!access) throw new ForbiddenException('Access denied');
+    }
+
     const [business] = await this.platformDb.db
       .select({
         id: businesses.id,
