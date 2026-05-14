@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, KeyRound, LogOut, Monitor, Smartphone, UserRound } from 'lucide-react';
@@ -101,6 +101,14 @@ function AccountMenu() {
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const handleToggle = useCallback(() => setSidebarCollapsed((v) => !v), []);
+  const { user, setPermissions } = useAuthStore();
+
+  useEffect(() => {
+    api.get('/platform/auth/me')
+      .then((r) => setPermissions(r.data.permissions ?? []))
+      .catch(() => undefined);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">

@@ -28,21 +28,34 @@ import {
   Webhook,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/auth.store';
 
-const NAV_GROUPS = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  permission?: string;
+}
+
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Tổng quan',
     items: [
-      { href: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard },
+      { href: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard, permission: 'platform.dashboard.view' },
       { href: '/alerts', label: 'Cảnh báo & SLA', icon: AlertTriangle },
-      { href: '/audit-logs', label: 'Nhật ký hoạt động', icon: FileClock },
+      { href: '/audit-logs', label: 'Nhật ký hoạt động', icon: FileClock, permission: 'platform.audit.view' },
     ],
   },
   {
     label: 'Doanh nghiệp',
     items: [
-      { href: '/businesses', label: 'Danh sách doanh nghiệp', icon: Building2 },
-      { href: '/businesses/new', label: 'Tạo doanh nghiệp', icon: PlusCircle },
+      { href: '/businesses', label: 'Danh sách doanh nghiệp', icon: Building2, permission: 'platform.business.view' },
+      { href: '/businesses/new', label: 'Tạo doanh nghiệp', icon: PlusCircle, permission: 'platform.business.create' },
       { href: '/subscriptions/trials', label: 'Dùng thử & gia hạn', icon: RotateCcw },
       { href: '/subscriptions/plans', label: 'Gói dịch vụ', icon: Package },
       { href: '/billing/invoices', label: 'Hợp đồng & hóa đơn', icon: ReceiptText },
@@ -51,9 +64,9 @@ const NAV_GROUPS = [
   {
     label: 'Tài khoản & RBAC',
     items: [
-      { href: '/accounts', label: 'Tài khoản nền tảng', icon: Users },
-      { href: '/rbac/roles', label: 'Vai trò nền tảng', icon: ShieldCheck },
-      { href: '/rbac/permissions', label: 'Phân quyền', icon: KeyRound },
+      { href: '/accounts', label: 'Tài khoản nền tảng', icon: Users, permission: 'platform.account.view' },
+      { href: '/rbac/roles', label: 'Vai trò nền tảng', icon: ShieldCheck, permission: 'platform.rbac.view' },
+      { href: '/rbac/permissions', label: 'Phân quyền', icon: KeyRound, permission: 'platform.rbac.view' },
       { href: '/sessions', label: 'Phiên đăng nhập', icon: Monitor },
       { href: '/security/devices', label: 'MFA & thiết bị', icon: Smartphone },
     ],
@@ -85,6 +98,13 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const { user, permissions } = useAuthStore();
+
+  const canView = (item: NavItem): boolean => {
+    if (user?.isPlatformAdmin) return true;
+    if (!item.permission) return true;
+    return permissions.includes(item.permission);
+  };
 
   function toggleGroup(label: string) {
     if (collapsed) return;
@@ -127,7 +147,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       <nav className={cn('flex-1 overflow-y-auto py-4', collapsed ? 'px-2 space-y-2' : 'px-3 space-y-4')}>
         {NAV_GROUPS.map((group) => {
-          const groupActive = group.items.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+          const visibleItems = group.items.filter(canView);
+          if (visibleItems.length === 0) return null;
+
+          const groupActive = visibleItems.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
           const groupOpen = collapsed ? true : (openGroups[group.label] ?? true) || groupActive;
 
           return (
@@ -148,7 +171,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
               {groupOpen && (
                 <div className={cn('space-y-0.5', collapsed ? '' : 'mt-1')}>
-                  {group.items.map(({ href, label, icon: Icon }) => {
+                  {visibleItems.map(({ href, label, icon: Icon }) => {
                     const active = pathname === href || pathname.startsWith(`${href}/`);
                     return (
                       <Link

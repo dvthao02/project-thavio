@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { eq, or } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
 import { PlatformDbService } from '@common/database/platform-db.service';
-import { accounts, auditEvents } from '@schema/platform';
+import { accounts, auditEvents, accountRoleBindings, rolePermissions, permissions } from '@schema/platform';
 import type { LoginDto } from './dto/login.dto';
 
 interface AuthAuditMeta extends Record<string, unknown> {
@@ -121,5 +121,32 @@ export class AuthService {
     });
 
     return { ok: true };
+  }
+
+  async getMe(accountId: string) {
+    const [account] = await this.platformDb.db
+      .select({
+        id: accounts.id,
+        email: accounts.email,
+        fullName: accounts.fullName,
+        isPlatformAdmin: accounts.isPlatformAdmin,
+      })
+      .from(accounts)
+      .where(eq(accounts.id, accountId))
+      .limit(1);
+
+    if (!account) throw new UnauthorizedException();
+
+    const perms = await this.platformDb.db
+      .selectDistinct({ permissionKey: permissions.permissionKey })
+      .from(accountRoleBindings)
+      .innerJoin(rolePermissions, eq(rolePermissions.roleId, accountRoleBindings.roleId))
+      .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
+      .where(eq(accountRoleBindings.accountId, accountId));
+
+    return {
+      ...account,
+      permissions: perms.map((p) => p.permissionKey),
+    };
   }
 }

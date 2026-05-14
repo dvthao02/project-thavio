@@ -11,7 +11,9 @@ interface PlatformUser {
 interface AuthState {
   token: string | null;
   user: PlatformUser | null;
+  permissions: string[];
   setAuth: (token: string, user: PlatformUser) => void;
+  setPermissions: (permissions: string[]) => void;
   clearAuth: () => void;
 }
 
@@ -20,6 +22,7 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       token: null,
       user: null,
+      permissions: [],
       setAuth: (token, user) => {
         if (typeof window !== 'undefined') {
           localStorage.setItem('admin_token', token);
@@ -27,17 +30,18 @@ export const useAuthStore = create<AuthState>()(
         }
         set({ token, user });
       },
+      setPermissions: (permissions) => set({ permissions }),
       clearAuth: () => {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('admin_token');
           document.cookie = 'admin_token=; path=/; max-age=0; SameSite=Lax';
         }
-        set({ token: null, user: null });
+        set({ token: null, user: null, permissions: [] });
       },
     }),
     {
       name: 'admin-auth',
-      partialize: (state) => ({ user: state.user }),
+      partialize: (state) => ({ user: state.user, permissions: state.permissions }),
     },
   ),
 );

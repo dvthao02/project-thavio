@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginSchema } from './dto/login.dto';
@@ -22,5 +22,10 @@ export class AuthController {
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
     });
+  }
+
+  @Get('me')
+  getMe(@Req() req: Request & { platformUser?: any }) {
+    return this.authService.getMe(req.platformUser.sub);
   }
 }
