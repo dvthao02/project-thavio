@@ -13,7 +13,7 @@ import { Pool } from 'pg';
 import { eq, ilike, or, count, desc, and, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { BusinessDbService } from '@common/database/business-db.service';
-import { businesses, businessSubscriptions } from '@schema/platform';
+import { businesses, businessSubscriptions, accountBusinesses } from '@schema/platform';
 import { env } from '@config/env';
 import type { CreateBusinessDto } from './dto/create-business.dto';
 import type { ListBusinessesDto } from './dto/list-businesses.dto';
@@ -160,9 +160,16 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
          ab.business_id, a.id, a.full_name, a.email
        FROM platform.account_businesses ab
        JOIN platform.accounts a ON a.id = ab.account_id
-       WHERE ab.business_id = ANY($1) AND ab.status = 'active'
+       WHERE ab.business_id = ANY($1)
+         AND ab.status = 'active'
+         AND ab.access_level != 'owner'
        ORDER BY ab.business_id,
-         CASE ab.access_level WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END`,
+         CASE
+           WHEN a.is_platform_admin = true AND ab.access_level = 'admin' THEN 1
+           WHEN a.is_platform_admin = true THEN 2
+           WHEN ab.access_level = 'admin' THEN 3
+           ELSE 4
+         END`,
       [businessIds],
     );
     const map = new Map<string, { id: string; fullName: string; email: string | null }>();
@@ -221,7 +228,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     return business;
   }
 
-  async create(dto: CreateBusinessDto) {
+  async create(dto: CreateBusinessDto, createdByAccountId?: string) {
     const schemaName = `business_${dto.businessCode}`;
 
     if (!/^[a-z0-9_]{3,50}$/.test(dto.businessCode)) {
@@ -281,6 +288,18 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         })
         .returning({ id: businesses.id });
       businessId = inserted.id;
+
+      // Step 4.5: Link creating admin as phụ trách (access_level='admin')
+      if (createdByAccountId) {
+        try {
+          await this.platformDb.db
+            .insert(accountBusinesses)
+            .values({ accountId: createdByAccountId, businessId, accessLevel: 'admin', status: 'active' })
+            .onConflictDoNothing();
+        } catch {
+          // Non-critical
+        }
+      }
 
       // Step 5: Create subscription record
       try {

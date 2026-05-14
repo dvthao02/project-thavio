@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { BusinessesService } from './businesses.service';
 import { CreateBusinessSchema } from './dto/create-business.dto';
 import { ListBusinessesSchema } from './dto/list-businesses.dto';
@@ -24,9 +25,9 @@ export class BusinessesController {
 
   @RequirePermission('platform.business.create')
   @Post()
-  create(@Body() body: unknown) {
+  create(@Body() body: unknown, @Req() req: Request & { platformUser?: any }) {
     const dto = CreateBusinessSchema.parse(body);
-    return this.businessesService.create(dto);
+    return this.businessesService.create(dto, req.platformUser?.sub);
   }
 
   @RequirePermission('platform.business.update')
