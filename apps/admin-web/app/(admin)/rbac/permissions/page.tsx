@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, KeyRound, Search, ShieldCheck } from 'lucide-react';
+import { Building2, KeyRound, Search, ShieldCheck, X, Crown } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface Permission {
@@ -19,12 +19,93 @@ interface PermissionsResponse {
   modules: { moduleKey: string; count: number; permissions: Permission[] }[];
 }
 
+interface RoleItem {
+  id: string;
+  roleKey: string;
+  roleName: string;
+  roleScope: string;
+  isSystem: boolean;
+}
+
 type Scope = 'platform' | 'business';
+
+function PermissionRolesModal({ permission, onClose }: { permission: Permission; onClose: () => void }) {
+  const { data, isLoading } = useQuery<{ roles: RoleItem[] }>({
+    queryKey: ['permission-roles', permission.id],
+    queryFn: () => api.get(`/platform/rbac/permissions/${permission.id}/roles`).then((r) => r.data),
+    enabled: !!permission.id,
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl">
+        <div className="flex items-start justify-between border-b border-border px-5 py-4">
+          <div className="min-w-0 flex-1 pr-4">
+            <p className="text-sm font-semibold text-foreground">{permission.permissionName}</p>
+            <code className="text-[11px] text-muted-foreground">{permission.permissionKey}</code>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="px-5 py-4">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Vai trò đang có quyền này
+          </p>
+
+          {isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-9 animate-pulse rounded-lg bg-muted" />
+              ))}
+            </div>
+          ) : !data || data.roles.length === 0 ? (
+            <div className="rounded-lg border border-border bg-muted/20 py-8 text-center">
+              <ShieldCheck size={28} className="mx-auto mb-2 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">Chưa có vai trò nào được gán quyền này.</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+              {data.roles.map((role) => (
+                <li key={role.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">{role.roleName}</p>
+                    <code className="text-[11px] text-muted-foreground">{role.roleKey}</code>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {role.isSystem && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600">
+                        <Crown size={10} /> System
+                      </span>
+                    )}
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                      role.roleScope === 'platform'
+                        ? 'bg-primary/10 text-primary'
+                        : 'bg-violet-500/10 text-violet-600'
+                    }`}>
+                      {role.roleScope === 'platform' ? 'Platform' : 'Business'}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function PermissionsPage() {
   const [scope, setScope] = useState<Scope>('platform');
   const [search, setSearch] = useState('');
   const [onlyUnused, setOnlyUnused] = useState(false);
+  const [selectedPermission, setSelectedPermission] = useState<Permission | null>(null);
 
   const { data, isLoading, isError } = useQuery<PermissionsResponse>({
     queryKey: ['rbac-permissions-view', scope],
@@ -159,7 +240,14 @@ export default function PermissionsPage() {
               </div>
               <div className="divide-y divide-border">
                 {mod.permissions.map((p) => (
-                  <div key={p.id} className="flex items-center gap-4 px-4 py-2.5 hover:bg-muted/20 transition-colors">
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => scope === 'platform' ? setSelectedPermission(p) : undefined}
+                    className={`flex w-full items-center gap-4 px-4 py-2.5 text-left transition-colors ${
+                      scope === 'platform' ? 'hover:bg-muted/30 cursor-pointer' : 'cursor-default'
+                    }`}
+                  >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground">{p.permissionName}</p>
                       <code className="text-[11px] text-muted-foreground">{p.permissionKey}</code>
@@ -177,12 +265,19 @@ export default function PermissionsPage() {
                         )}
                       </div>
                     )}
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {selectedPermission && (
+        <PermissionRolesModal
+          permission={selectedPermission}
+          onClose={() => setSelectedPermission(null)}
+        />
       )}
     </div>
   );

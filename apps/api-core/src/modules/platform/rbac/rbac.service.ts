@@ -134,6 +134,18 @@ export class RbacService {
     };
   }
 
+  async getRolesForPermission(permissionId: string) {
+    const rows = await this.db.execute(sql.raw(
+      `SELECT r.id::text, r.role_key AS "roleKey", r.role_name AS "roleName",
+              r.role_scope AS "roleScope", r.is_system AS "isSystem"
+       FROM platform.role_permissions rp
+       INNER JOIN platform.roles r ON r.id = rp.role_id
+       WHERE rp.permission_id = '${permissionId}'::uuid
+       ORDER BY r.role_scope, r.role_name`,
+    ));
+    return { roles: rows.rows };
+  }
+
   async createRole(dto: { roleKey: string; roleName: string; description?: string; roleScope: string }) {
     const [existing] = await this.db
       .select({ id: roles.id })

@@ -73,4 +73,10 @@ export class RbacController {
   listPermissions(@Query('scope') scope?: string) {
     return this.rbacService.listPermissions(scope === 'business' ? 'business' : 'platform');
   }
+
+  @Get('permissions/:id/roles')
+  @RequirePermission('platform.role.view')
+  getRolesForPermission(@Param('id') id: string) {
+    return this.rbacService.getRolesForPermission(id);
+  }
 }
