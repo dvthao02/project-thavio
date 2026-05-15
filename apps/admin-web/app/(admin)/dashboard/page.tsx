@@ -72,7 +72,6 @@ const PERIODS: { key: Period; label: string }[] = [
   { key: '1y', label: '1 năm' },
 ];
 
-
 const STATUS_CFG: Record<string, { label: string; cls: string; color: string; dot: string }> = {
   active: { label: 'Hoạt động', cls: 'bg-emerald-500/10 text-emerald-600', color: '#10b981', dot: 'bg-emerald-500' },
   trial: { label: 'Dùng thử', cls: 'bg-sky-500/10 text-sky-600', color: '#0ea5e9', dot: 'bg-sky-500' },
@@ -81,7 +80,13 @@ const STATUS_CFG: Record<string, { label: string; cls: string; color: string; do
   inactive: { label: 'Ngừng HĐ', cls: 'bg-muted text-muted-foreground', color: '#94a3b8', dot: 'bg-slate-400' },
 };
 
-const PERIOD_DAYS: Partial<Record<Period, number>> = { '7d': 7, '30d': 30 };
+const PERIOD_DAYS: Record<Period, number> = {
+  '7d': 7,
+  '30d': 30,
+  '3m': 90,
+  '6m': 180,
+  '1y': 365,
+};
 
 const PLAN_COLOR: Record<string, string> = {
   starter: '#64748b',
@@ -93,6 +98,63 @@ const PLAN_COLOR: Record<string, string> = {
 
 function norm(s: string) {
   return (s ?? 'starter').toLowerCase();
+}
+
+function formatDayMonth(d: Date) {
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function buildDailySeries(raw: { label: string; total: number }[], days: number) {
+  const dateMap = new Map(raw.map((p) => [p.label, p.total]));
+  const today = new Date();
+
+  return Array.from({ length: days }, (_, i) => {
+    const d = new Date(today);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - (days - 1 - i));
+    const label = formatDayMonth(d);
+    return {
+      date: d,
+      label,
+      value: dateMap.get(label) ?? 0,
+    };
+  });
+}
+
+function buildAreaData(raw: { label: string; total: number }[], period: Period) {
+  if (period === '1y') {
+    const monthMap = new Map(raw.map((r) => [r.label, r.total]));
+    const now = new Date();
+    return Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+      const label = `${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+      return {
+        label,
+        'Doanh nghiệp': monthMap.get(label) ?? 0,
+      };
+    });
+  }
+
+  const daily = buildDailySeries(raw, PERIOD_DAYS[period]);
+
+  if (period === '7d' || period === '30d') {
+    return daily.map((d) => ({ label: d.label, 'Doanh nghiệp': d.value }));
+  }
+
+  if (period === '3m' || period === '6m') {
+    const grouped: Array<{ label: string; 'Doanh nghiệp': number }> = [];
+    for (let i = 0; i < daily.length; i += 7) {
+      const slice = daily.slice(i, i + 7);
+      const total = slice.reduce((sum, day) => sum + day.value, 0);
+      grouped.push({
+        label: `${slice[0].label} - ${slice[slice.length - 1].label}`,
+        'Doanh nghiệp': total,
+      });
+    }
+    return grouped;
+  }
+
+  return daily.map((d) => ({ label: d.label, 'Doanh nghiệp': d.value }));
 }
 
 function ChartTip({ active, payload, label }: any) {
@@ -139,16 +201,16 @@ function StatCard({
           <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
         </div>
         {(sub !== undefined || trend !== undefined) && (
-        <div className="mt-1">
-          {trend !== undefined && trend > 0 && (
-            <span className="flex items-center gap-0.5 text-[11px] text-emerald-600 font-medium">
-              <TrendingUp size={10} /> +{trend} trong kỳ
-            </span>
-          )}
-          {trend === 0 && <span className="text-[11px] text-muted-foreground">Không đổi trong kỳ</span>}
-          {sub && <span className="text-[11px] text-muted-foreground">{sub}</span>}
-        </div>
-      )}
+          <div className="mt-1">
+            {trend !== undefined && trend > 0 && (
+              <span className="flex items-center gap-0.5 text-[11px] text-emerald-600 font-medium">
+                <TrendingUp size={10} /> +{trend} trong kỳ
+              </span>
+            )}
+            {trend === 0 && <span className="text-[11px] text-muted-foreground">Không đổi trong kỳ</span>}
+            {sub && <span className="text-[11px] text-muted-foreground">{sub}</span>}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -157,12 +219,10 @@ function StatCard({
 export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>('30d');
   const [assigneeId, setAssigneeId] = useState('');
+
   const { data: assigneeAccounts } = useQuery<Array<{ id: string; username: string; fullName: string | null; email: string | null }>>({
     queryKey: ['dashboard-assignee-options'],
-    queryFn: () =>
-      api
-        .get('/platform/accounts', { params: { page: 1, limit: 100 } })
-        .then((r) => r.data.data),
+    queryFn: () => api.get('/platform/accounts', { params: { page: 1, limit: 100 } }).then((r) => r.data.data),
     staleTime: 300_000,
   });
 
@@ -193,19 +253,7 @@ export default function DashboardPage() {
     fill: PLAN_COLOR[norm(p.plan)] ?? '#94a3b8',
   }));
 
-  const areaData = (() => {
-    const raw = biz?.byPeriod ?? [];
-    const days = PERIOD_DAYS[period];
-    if (!days || raw.length === 0) return raw.map((p) => ({ label: p.label, 'Doanh nghiệp': p.total }));
-    const dateMap = new Map(raw.map((p) => [p.label, p.total]));
-    const today = new Date();
-    return Array.from({ length: days }, (_, i) => {
-      const d = new Date(today);
-      d.setDate(d.getDate() - (days - 1 - i));
-      const label = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-      return { label, 'Doanh nghiệp': dateMap.get(label) ?? 0 };
-    });
-  })();
+  const areaData = buildAreaData(biz?.byPeriod ?? [], period);
 
   return (
     <div className="space-y-5">
@@ -347,17 +395,17 @@ export default function DashboardPage() {
             <div className="flex min-h-44 flex-1 items-end justify-center pb-6 text-sm text-muted-foreground">Chưa có dữ liệu</div>
           ) : (
             <div className="mt-auto h-44">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={planData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--border))" />
-                <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--border))" allowDecimals={false} domain={[0, 'auto']} />
-                <Tooltip content={<ChartTip />} />
-                <Bar dataKey="total" name="Doanh nghiệp" radius={[4, 4, 0, 0]}>
-                  {planData.map((p, i) => <Cell key={i} fill={p.fill} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={planData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--border))" />
+                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} stroke="hsl(var(--border))" allowDecimals={false} domain={[0, 'auto']} />
+                  <Tooltip content={<ChartTip />} />
+                  <Bar dataKey="total" name="Doanh nghiệp" radius={[4, 4, 0, 0]}>
+                    {planData.map((p, i) => <Cell key={i} fill={p.fill} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           )}
         </div>
@@ -365,7 +413,7 @@ export default function DashboardPage() {
         <div className="col-span-4 bg-card border border-border rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <h2 className="text-sm font-semibold text-foreground">Doanh nghiệp mới nhất</h2>
-            <Link href="/businesses" className="text-xs text-primary hover:underline">Xem tất cả</Link>
+            <Link href="/admin/businesses" className="text-xs text-primary hover:underline">Xem tất cả</Link>
           </div>
           <div className="divide-y divide-border">
             {isLoading ? (
@@ -379,7 +427,7 @@ export default function DashboardPage() {
               data.recentBusinesses.map((b) => {
                 const sc = STATUS_CFG[b.status] ?? STATUS_CFG.inactive;
                 return (
-                  <Link key={b.id} href={`/businesses/${b.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/20 transition-colors group">
+                  <Link key={b.id} href={`/admin/businesses/${b.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/20 transition-colors group">
                     <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary text-xs font-bold uppercase shrink-0">
                       {b.businessCode.slice(0, 2)}
                     </div>
@@ -398,7 +446,7 @@ export default function DashboardPage() {
         <div className="col-span-4 bg-card border border-border rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <h2 className="text-sm font-semibold text-foreground">Tài khoản mới nhất</h2>
-            <Link href="/accounts" className="text-xs text-primary hover:underline">Xem tất cả</Link>
+            <Link href="/admin/accounts" className="text-xs text-primary hover:underline">Xem tất cả</Link>
           </div>
           <div className="divide-y divide-border">
             {isLoading ? (

@@ -560,14 +560,9 @@ export default function NewBusinessPage() {
           </div>
 
           <div className="space-y-4 rounded-md border border-border bg-muted/20 p-4">
-            <div className="flex items-start gap-2">
-              <MapPin size={16} className="mt-0.5 text-primary" />
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">Khu vực cửa hàng</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Khối này để full width. Khi backend có API tỉnh/thành, các ô dưới nên đổi thành danh mục chọn.
-                </p>
-              </div>
+            <div className="flex items-center gap-2">
+              <MapPin size={16} className="text-primary" />
+              <h3 className="text-sm font-semibold text-foreground">Khu vực cửa hàng</h3>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-3">

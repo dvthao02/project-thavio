@@ -10,7 +10,7 @@ export default function NotFound() {
           Đường dẫn này chưa có trong admin hoặc bạn không có quyền truy cập.
         </p>
         <Link
-          href="/dashboard"
+          href="/admin/dashboard"
           className="inline-flex mt-5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
         >
           Về tổng quan

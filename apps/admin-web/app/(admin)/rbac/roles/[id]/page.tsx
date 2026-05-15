@@ -133,7 +133,7 @@ export default function RoleDetailPage() {
     mutationFn: () => api.delete(`/platform/rbac/roles/${id}`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['rbac-roles'] });
-      router.push('/rbac/roles');
+      router.push(`/admin/rbac/roles?scope=${role?.roleScope ?? 'platform'}`);
     },
   });
 
@@ -175,7 +175,7 @@ export default function RoleDetailPage() {
       <div className="flex h-64 flex-col items-center justify-center gap-3">
         <ShieldCheck size={32} className="text-muted-foreground/40" />
         <p className="text-sm text-muted-foreground">Không tìm thấy vai trò.</p>
-        <Link href="/rbac/roles" className="text-sm text-primary hover:underline">Quay lại</Link>
+        <Link href={`/admin/rbac/roles?scope=${role?.roleScope ?? 'platform'}`} className="text-sm text-primary hover:underline">Quay lại</Link>
       </div>
     );
   }
@@ -213,7 +213,7 @@ export default function RoleDetailPage() {
     <div className="max-w-3xl space-y-5">
       {/* Header */}
       <div className="flex items-start gap-3">
-        <Link href="/rbac/roles" className="mt-1 text-muted-foreground hover:text-foreground transition-colors">
+        <Link href={`/admin/rbac/roles?scope=${role.roleScope}`} className="mt-1 text-muted-foreground hover:text-foreground transition-colors">
           <ChevronLeft size={20} />
         </Link>
         <div className="flex-1 min-w-0">

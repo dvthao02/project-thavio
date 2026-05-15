@@ -24,7 +24,7 @@ api.interceptors.response.use(
     if (err.response?.status === 401 && !isLoginRequest && typeof window !== 'undefined') {
       localStorage.removeItem('admin_token');
       document.cookie = 'admin_token=; path=/; max-age=0; SameSite=Lax';
-      window.location.href = '/login';
+      window.location.href = '/admin/login';
     }
     return Promise.reject(err);
   },

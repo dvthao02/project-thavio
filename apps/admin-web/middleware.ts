@@ -1,10 +1,41 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-const PUBLIC_PATHS = ['/login'];
+const PUBLIC_PATHS = ['/admin/login', '/login'];
+const LEGACY_ADMIN_PREFIXES = [
+  '/dashboard',
+  '/alerts',
+  '/audit-logs',
+  '/businesses',
+  '/subscriptions',
+  '/billing',
+  '/accounts',
+  '/rbac',
+  '/sessions',
+  '/security',
+  '/operations',
+  '/support',
+  '/settings',
+  '/integrations',
+];
 
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, search } = request.nextUrl;
+
+  if (pathname === '/login') {
+    const loginUrl = new URL('/admin/login', request.url);
+    if (search) loginUrl.search = search;
+    return NextResponse.redirect(loginUrl);
+  }
+
+  const isLegacyAdminPath = LEGACY_ADMIN_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+
+  if (isLegacyAdminPath) {
+    const target = new URL(`/admin${pathname}${search}`, request.url);
+    return NextResponse.redirect(target);
+  }
 
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
@@ -12,9 +43,18 @@ export function middleware(request: NextRequest) {
 
   const token = request.cookies.get('admin_token')?.value;
   if (!token) {
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('from', pathname);
+    const loginUrl = new URL('/admin/login', request.url);
+    loginUrl.searchParams.set('from', `${pathname}${search}`);
     return NextResponse.redirect(loginUrl);
+  }
+
+  if (pathname === '/admin') {
+    return NextResponse.rewrite(new URL('/dashboard', request.url));
+  }
+
+  if (pathname.startsWith('/admin/')) {
+    const internalPath = pathname.replace('/admin', '') || '/dashboard';
+    return NextResponse.rewrite(new URL(`${internalPath}${search}`, request.url));
   }
 
   return NextResponse.next();

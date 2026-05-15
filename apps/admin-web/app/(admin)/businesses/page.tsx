@@ -398,7 +398,85 @@ export default function BusinessesPage() {
         />
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
+      {/* Mobile card list */}
+      <div className="block xl:hidden overflow-hidden rounded-lg border border-border bg-card divide-y divide-border">
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="p-4 space-y-2">
+              <div className="h-4 w-1/2 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-1/3 animate-pulse rounded bg-muted" />
+            </div>
+          ))
+        ) : filteredRows.length === 0 ? (
+          <div className="px-5 py-12 text-center">
+            <Building2 size={32} className="mx-auto mb-2 text-muted-foreground/40" />
+            <p className="text-sm font-medium text-foreground">Không tìm thấy doanh nghiệp phù hợp</p>
+            <p className="mt-1 text-xs text-muted-foreground">Thử đổi bộ lọc hoặc từ khóa tìm kiếm.</p>
+          </div>
+        ) : (
+          filteredRows.map((business) => {
+            const statusConfig = STATUS_CONFIG[business.accessStatus] ?? STATUS_CONFIG.inactive;
+            const subscriptionConfig = SUBSCRIPTION_CONFIG[business.subscriptionStatus] ?? SUBSCRIPTION_CONFIG.cancelled;
+            const planKey = business.subscriptionPlan?.toLowerCase() ?? 'standard';
+            const planConfig = PLAN_CONFIG[planKey] ?? { label: business.subscriptionPlan, cls: PLAN_CONFIG.standard.cls };
+            const trialAwareSubscription =
+              business.subscriptionStatus === 'trialing' || business.subscriptionStatus === 'trial_expired'
+                ? `${subscriptionConfig.label} · ${getTrialLabel(business)}`
+                : subscriptionConfig.label;
+            const subscriptionTone =
+              business.subscriptionStatus === 'trialing' || business.subscriptionStatus === 'trial_expired'
+                ? getTrialClass(business)
+                : subscriptionConfig.cls;
+            return (
+              <Link
+                key={business.id}
+                href={`/businesses/${business.id}`}
+                className="flex items-start gap-3 p-4 transition-colors hover:bg-muted/20"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-bold uppercase text-primary">
+                  {business.businessCode.slice(0, 2)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="truncate font-medium text-foreground text-sm">{business.legalName}</p>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${planConfig.cls}`}>
+                      {planConfig.label}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                      {business.businessCode}
+                    </code>
+                    {business.firstStore && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Store size={11} />
+                        {business.firstStore.storeName}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusConfig.cls}`}>
+                      {statusConfig.label}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${subscriptionTone}`}>
+                      {trialAwareSubscription}
+                    </span>
+                  </div>
+                  {business.assignedAccount && (
+                    <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
+                      <UserCheck size={11} />
+                      {business.assignedAccount.fullName}
+                    </p>
+                  )}
+                </div>
+              </Link>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden xl:block overflow-hidden rounded-lg border border-border bg-card">
         <div className="overflow-x-auto">
         <table className="w-full min-w-[1080px] table-fixed text-sm">
           <thead>

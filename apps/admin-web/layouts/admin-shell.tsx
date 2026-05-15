@@ -23,7 +23,7 @@ function AccountMenu() {
     await api.post('/platform/auth/logout').catch(() => undefined);
     clearAuth();
     document.cookie = 'admin_token=; path=/; max-age=0';
-    router.push('/login');
+    router.push('/admin/login');
   }
 
   return (
@@ -51,7 +51,7 @@ function AccountMenu() {
           </div>
 
           <Link
-            href="/accounts"
+            href="/admin/accounts"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
@@ -59,7 +59,7 @@ function AccountMenu() {
             <span>Thông tin tài khoản</span>
           </Link>
           <Link
-            href="/settings/security"
+            href="/admin/settings/security"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
@@ -67,7 +67,7 @@ function AccountMenu() {
             <span>Đổi mật khẩu</span>
           </Link>
           <Link
-            href="/sessions"
+            href="/admin/sessions"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
@@ -75,7 +75,7 @@ function AccountMenu() {
             <span>Phiên đăng nhập</span>
           </Link>
           <Link
-            href="/security/devices"
+            href="/admin/security/devices"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >

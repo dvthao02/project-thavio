@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   AlertTriangle, Building2, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3,
-  Edit2, Eye, EyeOff, Lock, LockOpen, Mail, MapPin, Phone, Plus, Search,
+  Edit2, ExternalLink, Eye, EyeOff, Globe2, Lock, LockOpen, Mail, MapPin, Phone, Plus, Search,
   Store, Trash2, User, UserCheck, Users, X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -27,6 +27,8 @@ interface BusinessDetail {
   phone: string | null;
   taxCode: string | null;
   currencyCode: string | null;
+  website: string | null;
+  legalAddress: string | null;
   timezoneName: string | null;
   note: string | null;
   subscriptionExpiresAt: string | null;
@@ -151,6 +153,21 @@ const STAFF_ROLES = [
   { value: 'staff',     label: 'Nhân viên' },
 ];
 
+const TIMEZONES = [
+  { value: 'Asia/Ho_Chi_Minh', label: 'Việt Nam (UTC+7)' },
+  { value: 'Asia/Bangkok', label: 'Bangkok (UTC+7)' },
+  { value: 'Asia/Singapore', label: 'Singapore (UTC+8)' },
+  { value: 'UTC', label: 'UTC' },
+];
+
+const CURRENCIES = [
+  { value: 'VND', label: 'VND — Việt Nam Đồng' },
+  { value: 'USD', label: 'USD — Đô la Mỹ' },
+  { value: 'EUR', label: 'EUR — Euro' },
+  { value: 'THB', label: 'THB — Baht Thái' },
+  { value: 'SGD', label: 'SGD — Đô la Singapore' },
+];
+
 const DEFAULT_STAFF_FORM = {
   fullName: '', email: '', phone: '', staffCode: '',
   role: 'cashier', password: '', confirmPassword: '',
@@ -212,7 +229,7 @@ export default function BusinessDetailPage() {
 
   const [editForm, setEditForm] = useState({
     legalName: '', brandName: '', email: '', phone: '',
-    taxCode: '', currencyCode: '', timezoneName: '', note: '',
+    taxCode: '', currencyCode: '', website: '', legalAddress: '', timezoneName: '', note: '',
   });
 
   useEscape(editOpen, () => setEditOpen(false));
@@ -313,6 +330,8 @@ export default function BusinessDetailPage() {
       phone: business.phone ?? '',
       taxCode: business.taxCode ?? '',
       currencyCode: business.currencyCode ?? '',
+      website: business.website ?? '',
+      legalAddress: business.legalAddress ?? '',
       timezoneName: business.timezoneName ?? '',
       note: business.note ?? '',
     });
@@ -403,8 +422,8 @@ export default function BusinessDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-border">
-        <nav className="flex gap-0">
+      <div className="overflow-x-auto border-b border-border">
+        <nav className="flex min-w-max gap-0">
           {([
             { key: 'info',         label: 'Thông tin' },
             { key: 'stores',       label: 'Cửa hàng' },
@@ -437,6 +456,24 @@ export default function BusinessDetailPage() {
             <InfoRow label="Mã số thuế" value={business.taxCode} />
             <InfoRow label="Email liên hệ" value={business.email} />
             <InfoRow label="Số điện thoại" value={business.phone} />
+            <InfoRow
+              label="Website"
+              value={
+                business.website ? (
+                  <a
+                    href={business.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    <Globe2 size={13} />
+                    {business.website}
+                    <ExternalLink size={11} className="text-muted-foreground" />
+                  </a>
+                ) : null
+              }
+            />
+            <InfoRow label="Địa chỉ pháp lý" value={business.legalAddress} />
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
             <h3 className="text-sm font-semibold text-foreground mb-1">Cấu hình hệ thống</h3>
@@ -535,7 +572,8 @@ export default function BusinessDetailPage() {
                           <p className="text-xs text-muted-foreground">Chưa có nhân viên trong cửa hàng này</p>
                         </div>
                       ) : (
-                        <table className="w-full text-sm">
+                        <div className="overflow-x-auto">
+                        <table className="w-full min-w-[640px] text-sm">
                           <thead>
                             <tr className="bg-muted/30">
                               <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Nhân viên</th>
@@ -596,6 +634,7 @@ export default function BusinessDetailPage() {
                             ))}
                           </tbody>
                         </table>
+                        </div>
                       )}
                     </div>
                   )}
@@ -721,7 +760,8 @@ export default function BusinessDetailPage() {
               <p className="text-sm text-muted-foreground">Chưa có nhân viên phụ trách</p>
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-sm">
               <thead>
                 <tr className="bg-muted/40">
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Tài khoản</th>
@@ -773,6 +813,7 @@ export default function BusinessDetailPage() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}
@@ -785,7 +826,7 @@ export default function BusinessDetailPage() {
               <h3 className="text-base font-semibold text-foreground">Chỉnh sửa thông tin</h3>
               <button onClick={() => setEditOpen(false)} className="text-muted-foreground hover:text-foreground"><X size={18} /></button>
             </div>
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+            <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Tên pháp lý *">
                   <input className={INPUT} value={editForm.legalName} onChange={(e) => setEditForm((f) => ({ ...f, legalName: e.target.value }))} />
@@ -795,7 +836,7 @@ export default function BusinessDetailPage() {
                 </Field>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Email">
+                <Field label="Email liên hệ">
                   <input type="email" className={INPUT} value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} />
                 </Field>
                 <Field label="Số điện thoại">
@@ -807,14 +848,33 @@ export default function BusinessDetailPage() {
                   <input className={INPUT} value={editForm.taxCode} onChange={(e) => setEditForm((f) => ({ ...f, taxCode: e.target.value }))} />
                 </Field>
                 <Field label="Tiền tệ">
-                  <input className={INPUT} value={editForm.currencyCode} onChange={(e) => setEditForm((f) => ({ ...f, currencyCode: e.target.value }))} placeholder="VND" />
+                  <select className={INPUT} value={editForm.currencyCode} onChange={(e) => setEditForm((f) => ({ ...f, currencyCode: e.target.value }))}>
+                    {CURRENCIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
                 </Field>
               </div>
-              <Field label="Múi giờ">
-                <input className={INPUT} value={editForm.timezoneName} onChange={(e) => setEditForm((f) => ({ ...f, timezoneName: e.target.value }))} placeholder="Asia/Ho_Chi_Minh" />
+              <Field label="Website">
+                <div className="relative">
+                  <Globe2 size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="url"
+                    className={INPUT + ' pl-8'}
+                    value={editForm.website}
+                    onChange={(e) => setEditForm((f) => ({ ...f, website: e.target.value }))}
+                    placeholder="https://business.vn"
+                  />
+                </div>
               </Field>
-              <Field label="Ghi chú">
-                <textarea className={INPUT + ' resize-none'} rows={3} value={editForm.note} onChange={(e) => setEditForm((f) => ({ ...f, note: e.target.value }))} />
+              <Field label="Địa chỉ pháp lý">
+                <textarea className={INPUT + ' resize-none'} rows={2} value={editForm.legalAddress} onChange={(e) => setEditForm((f) => ({ ...f, legalAddress: e.target.value }))} placeholder="Địa chỉ đăng ký kinh doanh" />
+              </Field>
+              <Field label="Múi giờ">
+                <select className={INPUT} value={editForm.timezoneName} onChange={(e) => setEditForm((f) => ({ ...f, timezoneName: e.target.value }))}>
+                  {TIMEZONES.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Ghi chú vận hành">
+                <textarea className={INPUT + ' resize-none'} rows={3} value={editForm.note} onChange={(e) => setEditForm((f) => ({ ...f, note: e.target.value }))} placeholder="Nguồn lead, yêu cầu đặc biệt..." />
               </Field>
             </div>
             {updateMut.isError && (

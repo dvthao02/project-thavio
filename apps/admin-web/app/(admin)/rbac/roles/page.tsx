@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Building2, ChevronRight, Crown, KeyRound, Loader2, Plus, Search, ShieldCheck, Users, X } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -79,11 +80,52 @@ function CompactStat({
 }
 
 const DEFAULT_FORM = { roleKey: '', roleName: '', description: '', roleScope: 'platform' as 'platform' | 'business' };
+const ROLE_PRESETS: Record<'platform' | 'business', Array<{ label: string; roleName: string; roleKey: string; description: string; permissionModules: string[]; permissionKeys?: string[] }>> = {
+  platform: [
+    { label: 'Quản trị nền tảng', roleName: 'Quản trị nền tảng', roleKey: 'platform.admin', description: 'Toàn quyền quản trị nền tảng', permissionModules: ['*'] },
+    { label: 'Hỗ trợ hệ thống', roleName: 'Hỗ trợ hệ thống', roleKey: 'platform.support', description: 'Hỗ trợ vận hành và xử lý sự cố', permissionModules: ['ALERT', 'AUDIT', 'SUPPORT', 'BUSINESS'] },
+  ],
+  business: [
+    {
+      label: 'Quản lý cửa hàng',
+      roleName: 'Quản lý cửa hàng',
+      roleKey: 'business.store.manager',
+      description: 'Quản lý hoạt động cửa hàng',
+      permissionModules: ['APPROVAL', 'AUDIT', 'CASH', 'ORDER', 'PRODUCT', 'INVENTORY', 'CUSTOMER', 'REPORT'],
+    },
+    {
+      label: 'Nhân viên bán hàng',
+      roleName: 'Nhân viên bán hàng',
+      roleKey: 'business.sales',
+      description: 'Nghiệp vụ bán hàng tại quầy/POS',
+      permissionModules: ['SALES', 'ORDER', 'CUSTOMER', 'PRODUCT'],
+    },
+    {
+      label: 'Thu ngân',
+      roleName: 'Thu ngân',
+      roleKey: 'business.cashier',
+      description: 'Thu chi và đối soát quầy',
+      permissionModules: ['CASH', 'ORDER', 'AUDIT'],
+    },
+  ],
+};
+const ROLE_PRIORITY: Record<string, number> = {
+  'platform.admin': 1,
+  'business.store.manager': 2,
+  'platform.support': 3,
+  'business.sales': 4,
+  'business.cashier': 5,
+};
 
 export default function RolesPage() {
-  const [scope, setScope] = useState<'all' | 'platform' | 'business'>('all');
+  const searchParams = useSearchParams();
+  const scopeParam = searchParams.get('scope');
+  const forcedScope = scopeParam === 'platform' || scopeParam === 'business' ? scopeParam : null;
+  const [scope, setScope] = useState<'all' | 'platform' | 'business'>(forcedScope ?? 'all');
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState(DEFAULT_FORM);
+  const [useCustomRoleKey, setUseCustomRoleKey] = useState(false);
+  const [presetKey, setPresetKey] = useState('');
   const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set());
   const [permSearch, setPermSearch] = useState('');
   const qc = useQueryClient();
@@ -94,6 +136,10 @@ export default function RolesPage() {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [createOpen]);
+
+  useEffect(() => {
+    if (forcedScope) setScope(forcedScope);
+  }, [forcedScope]);
 
   const { data: roles = [], isLoading, isError } = useQuery<Role[]>({
     queryKey: ['rbac-roles'],
@@ -106,9 +152,35 @@ export default function RolesPage() {
     enabled: createOpen,
   });
 
+  useEffect(() => {
+    if (!createOpen || !presetKey || !allPermsData) return;
+    const preset = ROLE_PRESETS[form.roleScope].find((p) => p.roleKey === presetKey);
+    if (!preset) return;
+    const ids = new Set<string>();
+    const useAll = preset.permissionModules.includes('*');
+    const modules = new Set(preset.permissionModules.map((m) => m.toUpperCase()));
+    const keys = new Set((preset.permissionKeys ?? []).map((k) => k.toLowerCase()));
+    for (const module of allPermsData.modules) {
+      for (const perm of module.permissions) {
+        if (
+          useAll ||
+          modules.has(module.moduleKey.toUpperCase()) ||
+          keys.has(perm.permissionKey.toLowerCase())
+        ) {
+          ids.add(perm.id);
+        }
+      }
+    }
+    setSelectedPerms(ids);
+  }, [allPermsData, createOpen, form.roleScope, presetKey]);
+
   const createMut = useMutation({
     mutationFn: async (payload: { form: typeof form; permIds: string[] }) => {
-      const created = await api.post('/platform/rbac/roles', payload.form).then((r) => r.data);
+      const submitForm = {
+        ...payload.form,
+        roleKey: payload.form.roleKey?.trim() ? payload.form.roleKey.trim() : undefined,
+      };
+      const created = await api.post('/platform/rbac/roles', submitForm).then((r) => r.data);
       if (payload.permIds.length > 0) {
         await Promise.all(
           payload.permIds.map((permissionId) =>
@@ -127,11 +199,21 @@ export default function RolesPage() {
   const closeCreate = () => {
     setCreateOpen(false);
     setForm(DEFAULT_FORM);
+    setUseCustomRoleKey(false);
+    setPresetKey('');
     setSelectedPerms(new Set());
     setPermSearch('');
   };
 
-  const filtered = scope === 'all' ? roles : roles.filter((r) => r.roleScope === scope);
+  const filtered = (scope === 'all' ? roles : roles.filter((r) => r.roleScope === scope))
+    .slice()
+    .sort((a, b) => {
+      const pa = ROLE_PRIORITY[a.roleKey] ?? 999;
+      const pb = ROLE_PRIORITY[b.roleKey] ?? 999;
+      if (pa !== pb) return pa - pb;
+      if (a.roleScope !== b.roleScope) return a.roleScope === 'platform' ? -1 : 1;
+      return a.roleName.localeCompare(b.roleName, 'vi');
+    });
   const platformCount = roles.filter((r) => r.roleScope === 'platform').length;
   const businessCount = roles.filter((r) => r.roleScope === 'business').length;
   const systemCount = roles.filter((r) => r.isSystem).length;
@@ -186,6 +268,8 @@ export default function RolesPage() {
         <button
           onClick={() => {
             setForm((f) => ({ ...f, roleScope: scope === 'business' ? 'business' : 'platform' }));
+            setUseCustomRoleKey(false);
+            setPresetKey('');
             setCreateOpen(true);
           }}
           className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition"
@@ -232,20 +316,26 @@ export default function RolesPage() {
         />
       </div>
 
-      <div className="inline-flex rounded-md border border-border bg-card p-1">
-        {(['all', 'platform', 'business'] as const).map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setScope(key)}
-            className={`rounded px-3 py-1.5 text-sm font-medium transition ${
-              scope === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            {key === 'all' ? 'Tất cả' : key === 'platform' ? 'Platform' : 'Business'}
-          </button>
-        ))}
-      </div>
+      {!forcedScope ? (
+        <div className="inline-flex rounded-md border border-border bg-card p-1">
+          {(['all', 'platform', 'business'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setScope(key)}
+              className={`rounded px-3 py-1.5 text-sm font-medium transition ${
+                scope === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              {key === 'all' ? 'Tất cả' : key === 'platform' ? 'Platform' : 'Business'}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="inline-flex rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground">
+          {forcedScope === 'platform' ? 'Vai trò nền tảng' : 'Vai trò doanh nghiệp'}
+        </div>
+      )}
 
       {isError && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
@@ -326,7 +416,7 @@ export default function RolesPage() {
                     </td>
                     <td className="px-4 py-3.5 text-right">
                       <Link
-                        href={`/rbac/roles/${role.id}`}
+                        href={`/admin/rbac/roles/${role.id}`}
                         className="inline-flex items-center gap-1 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium transition hover:bg-muted"
                       >
                         Chi tiết
@@ -356,6 +446,34 @@ export default function RolesPage() {
               {/* Left: role info */}
               <div className="w-80 shrink-0 overflow-y-auto border-r border-border p-6">
                 <div className="space-y-4">
+                  <Field label="Mẫu vai trò">
+                    <select
+                      className={INPUT}
+                      value={presetKey}
+                      onChange={(e) => {
+                        const nextPresetKey = e.target.value;
+                        setPresetKey(nextPresetKey);
+                        if (!nextPresetKey) return;
+                        const selected = ROLE_PRESETS[form.roleScope].find((p) => p.roleKey === nextPresetKey);
+                        if (!selected) return;
+                        setForm((f) => ({
+                          ...f,
+                          roleName: selected.roleName,
+                          roleKey: selected.roleKey,
+                          description: selected.description,
+                        }));
+                        setSelectedPerms(new Set());
+                        setUseCustomRoleKey(false);
+                      }}
+                    >
+                      <option value="">Tự tạo mới (không dùng mẫu)</option>
+                      {ROLE_PRESETS[form.roleScope].map((preset) => (
+                        <option key={preset.roleKey} value={preset.roleKey}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
                   <Field label="Tên vai trò *">
                     <input
                       className={INPUT}
@@ -364,21 +482,38 @@ export default function RolesPage() {
                       placeholder="Quản trị viên"
                     />
                   </Field>
-                  <Field label="Role Key *">
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
                     <input
-                      className={INPUT}
-                      value={form.roleKey}
-                      onChange={(e) => setForm((f) => ({ ...f, roleKey: e.target.value.toLowerCase() }))}
-                      placeholder="platform.admin"
+                      type="checkbox"
+                      checked={useCustomRoleKey}
+                      onChange={(e) => {
+                        setUseCustomRoleKey(e.target.checked);
+                        if (!e.target.checked) setForm((f) => ({ ...f, roleKey: '' }));
+                      }}
                     />
-                    <p className="mt-1 text-xs text-muted-foreground">Chỉ chữ thường, số, dấu chấm, gạch ngang, gạch dưới</p>
-                  </Field>
+                    Tùy chỉnh role key (nâng cao)
+                  </label>
+                  {useCustomRoleKey ? (
+                    <Field label="Role Key">
+                      <input
+                        className={INPUT}
+                        value={form.roleKey}
+                        onChange={(e) => setForm((f) => ({ ...f, roleKey: e.target.value.toLowerCase() }))}
+                        placeholder={`${form.roleScope}.custom.role`}
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">Chỉ chữ thường, số, dấu chấm, gạch ngang, gạch dưới</p>
+                    </Field>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Role key sẽ tự sinh theo phạm vi + tên vai trò, hoặc theo mẫu hệ thống.</p>
+                  )}
                   <Field label="Phạm vi *">
                     <select
                       className={INPUT}
                       value={form.roleScope}
                       onChange={(e) => {
-                        setForm((f) => ({ ...f, roleScope: e.target.value as 'platform' | 'business' }));
+                        const nextScope = e.target.value as 'platform' | 'business';
+                        setForm((f) => ({ ...f, roleScope: nextScope, roleKey: useCustomRoleKey ? f.roleKey : '' }));
+                        setPresetKey('');
                         setSelectedPerms(new Set());
                       }}
                     >
@@ -506,7 +641,7 @@ export default function RolesPage() {
                 </button>
                 <button
                   onClick={() => createMut.mutate({ form, permIds: Array.from(selectedPerms) })}
-                  disabled={createMut.isPending || !form.roleKey || !form.roleName}
+                  disabled={createMut.isPending || !form.roleName}
                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
                 >
                   {createMut.isPending ? 'Đang tạo...' : 'Tạo vai trò'}

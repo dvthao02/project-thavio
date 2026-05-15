@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import {
   AlertTriangle,
   Building2,
@@ -45,45 +45,47 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Tổng quan',
     items: [
-      { href: '/dashboard',   label: 'Tổng quan',            icon: LayoutDashboard, permission: 'platform.dashboard.view' },
-      { href: '/alerts',      label: 'Cảnh báo & SLA',       icon: AlertTriangle,   permission: 'platform.audit.view' },
-      { href: '/audit-logs',  label: 'Nhật ký hoạt động',    icon: FileClock,       permission: 'platform.audit.view' },
+      { href: '/admin/dashboard', label: 'Tổng quan', icon: LayoutDashboard, permission: 'platform.dashboard.view' },
+      { href: '/admin/alerts', label: 'Cảnh báo & SLA', icon: AlertTriangle, permission: 'platform.audit.view' },
+      { href: '/admin/audit-logs', label: 'Nhật ký hoạt động', icon: FileClock, permission: 'platform.audit.view' },
     ],
   },
   {
     label: 'Doanh nghiệp',
     items: [
-      { href: '/businesses',            label: 'Danh sách doanh nghiệp', icon: Building2,   permission: 'platform.business.view' },
-      { href: '/subscriptions/trials',  label: 'Dùng thử & gia hạn',     icon: RotateCcw,   permission: 'platform.subscription.view' },
-      { href: '/subscriptions/plans',   label: 'Gói dịch vụ',            icon: Package,     permission: 'platform.subscription.view' },
-      { href: '/billing/invoices',      label: 'Hợp đồng & hóa đơn',     icon: ReceiptText, permission: 'platform.invoice.view' },
+      { href: '/admin/businesses', label: 'Danh sách doanh nghiệp', icon: Building2, permission: 'platform.business.view' },
+      { href: '/admin/operations/assignees', label: 'Tài khoản doanh nghiệp', icon: Users, permission: 'platform.business.view' },
+      { href: '/admin/rbac/roles?scope=business', label: 'Vai trò doanh nghiệp', icon: ShieldCheck, permission: 'platform.role.view' },
+      { href: '/admin/subscriptions/trials', label: 'Dùng thử & gia hạn', icon: RotateCcw, permission: 'platform.subscription.view' },
+      { href: '/admin/subscriptions/plans', label: 'Gói dịch vụ', icon: Package, permission: 'platform.subscription.view' },
+      { href: '/admin/billing/invoices', label: 'Hợp đồng & hóa đơn', icon: ReceiptText, permission: 'platform.invoice.view' },
     ],
   },
   {
     label: 'Tài khoản & RBAC',
     items: [
-      { href: '/accounts',         label: 'Tài khoản nền tảng', icon: Users,       permission: 'platform.account.view' },
-      { href: '/rbac/roles',       label: 'Vai trò nền tảng',   icon: ShieldCheck, permission: 'platform.role.view' },
-      { href: '/rbac/permissions', label: 'Phân quyền',          icon: KeyRound,    permission: 'platform.role.view' },
-      { href: '/sessions',         label: 'Phiên đăng nhập',     icon: Monitor,     permission: 'platform.device.view' },
-      { href: '/security/devices', label: 'MFA & thiết bị',      icon: Smartphone,  permission: 'platform.device.view' },
+      { href: '/admin/accounts', label: 'Tài khoản nền tảng', icon: Users, permission: 'platform.account.view' },
+      { href: '/admin/rbac/roles?scope=platform', label: 'Vai trò nền tảng', icon: ShieldCheck, permission: 'platform.role.view' },
+      { href: '/admin/rbac/permissions', label: 'Phân quyền', icon: KeyRound, permission: 'platform.role.view' },
+      { href: '/admin/sessions', label: 'Phiên đăng nhập', icon: Monitor, permission: 'platform.device.view' },
+      { href: '/admin/security/devices', label: 'MFA & thiết bị', icon: Smartphone, permission: 'platform.device.view' },
     ],
   },
   {
     label: 'Vận hành',
     items: [
-      { href: '/operations/assignees',   label: 'Nhân viên phụ trách', icon: UserCheck, permission: 'platform.usage.view' },
-      { href: '/support/tickets',        label: 'Yêu cầu hỗ trợ',     icon: LifeBuoy,  permission: 'platform.support_ticket.view' },
-      { href: '/billing/reconciliation', label: 'Đối soát thanh toán', icon: Landmark,  permission: 'platform.billing.view' },
-      { href: '/support/impersonation',  label: 'Hỗ trợ truy cập',     icon: UserCog,   permission: 'platform.impersonation.view' },
+      { href: '/admin/operations/assignees', label: 'Nhân viên phụ trách', icon: UserCheck, permission: 'platform.usage.view' },
+      { href: '/admin/support/tickets', label: 'Yêu cầu hỗ trợ', icon: LifeBuoy, permission: 'platform.support_ticket.view' },
+      { href: '/admin/billing/reconciliation', label: 'Đối soát thanh toán', icon: Landmark, permission: 'platform.billing.view' },
+      { href: '/admin/support/impersonation', label: 'Hỗ trợ truy cập', icon: UserCog, permission: 'platform.impersonation.view' },
     ],
   },
   {
     label: 'Cấu hình',
     items: [
-      { href: '/settings/catalogs',     label: 'Danh mục',           icon: Tags,        permission: 'platform.system_setting.view' },
-      { href: '/integrations/webhooks', label: 'Tích hợp & Webhook', icon: Webhook,     permission: 'platform.webhook.view' },
-      { href: '/settings/security',     label: 'Bảo mật',            icon: LockKeyhole, permission: 'platform.system_setting.view' },
+      { href: '/admin/settings/catalogs', label: 'Danh mục', icon: Tags, permission: 'platform.system_setting.view' },
+      { href: '/admin/integrations/webhooks', label: 'Tích hợp & Webhook', icon: Webhook, permission: 'platform.webhook.view' },
+      { href: '/admin/settings/security', label: 'Bảo mật', icon: LockKeyhole, permission: 'platform.system_setting.view' },
     ],
   },
 ];
@@ -95,6 +97,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const { permissions } = useAuthStore();
 
@@ -107,6 +110,20 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     if (collapsed) return;
     setOpenGroups((current) => ({ ...current, [label]: !current[label] }));
   }
+  const hrefPath = (href: string) => href.split('?')[0];
+  const hrefScope = (href: string) => {
+    const query = href.split('?')[1];
+    if (!query) return null;
+    const params = new URLSearchParams(query);
+    return params.get('scope');
+  };
+  const isItemActive = (href: string) => {
+    const itemPath = hrefPath(href);
+    if (!(pathname === itemPath || pathname.startsWith(`${itemPath}/`))) return false;
+    const itemScope = hrefScope(href);
+    if (!itemScope) return true;
+    return searchParams.get('scope') === itemScope;
+  };
 
   return (
     <aside
@@ -137,7 +154,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo-icon.png" alt="Thavio" className="w-14 h-auto object-contain shrink-0" />
             <div className="min-w-0">
-              <p className="text-xl font-bold leading-none tracking-wide text-foreground">THADIO</p>
+              <p className="text-xl font-bold leading-none tracking-wide text-foreground">THAVIO</p>
             </div>
           </div>
         )}
@@ -159,7 +176,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           const visibleItems = group.items.filter(canView);
           if (visibleItems.length === 0) return null;
 
-          const groupActive = visibleItems.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+          const groupActive = visibleItems.some((item) => isItemActive(item.href));
           const groupOpen = collapsed ? true : (openGroups[group.label] ?? true) || groupActive;
 
           return (
@@ -181,7 +198,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               {groupOpen && (
                 <div className={cn('space-y-0.5', collapsed ? '' : 'mt-1')}>
                   {visibleItems.map(({ href, label, icon: Icon }) => {
-                    const active = pathname === href || pathname.startsWith(`${href}/`);
+                    const active = isItemActive(href);
                     return (
                       <Link
                         key={href}
@@ -209,3 +226,5 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     </aside>
   );
 }
+
+

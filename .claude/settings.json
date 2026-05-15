@@ -1,5 +1,9 @@
 {
   "enableAllProjectMcpServers": true,
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "permissions": {
     "allow": [
       "mcp__playwright__browser_navigate",
