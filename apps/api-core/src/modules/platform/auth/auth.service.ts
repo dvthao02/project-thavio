@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { eq, or } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { accounts, auditEvents, accountRoleBindings, rolePermissions, permissions, roles } from '@schema/platform';
 import type { LoginDto } from './dto/login.dto';
@@ -9,6 +10,8 @@ import type { LoginDto } from './dto/login.dto';
 interface AuthAuditMeta extends Record<string, unknown> {
   ipAddress?: string;
   userAgent?: string;
+  requestId?: string;
+  sessionId?: string;
 }
 
 @Injectable()
@@ -97,11 +100,13 @@ export class AuthService {
       .set({ lastLoginAt: new Date().toISOString() })
       .where(eq(accounts.id, account.id));
 
+    const sessionId = (typeof meta.sessionId === 'string' && meta.sessionId.trim()) ? meta.sessionId : randomUUID();
+
     await this.writeAuthEvent({
       accountId: account.id,
       eventType: 'platform_login_success',
       objectId: account.id,
-      payload: { loginMethod: 'password', identifier, ...meta },
+      payload: { loginMethod: 'password', identifier, ...meta, sessionId },
     });
 
     const payload = {
@@ -109,6 +114,7 @@ export class AuthService {
       email: account.email,
       scope: 'platform',
       isPlatformAdmin: account.isPlatformAdmin,
+      sid: sessionId,
     };
 
     return {

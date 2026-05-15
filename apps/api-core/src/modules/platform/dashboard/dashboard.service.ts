@@ -14,7 +14,7 @@ const INTERVAL: Record<Period, string> = {
 };
 
 const GROUP_BY: Record<Period, 'day' | 'month'> = {
-  '7d': 'day', '30d': 'day', '3m': 'month', '6m': 'month', '1y': 'month',
+  '7d': 'day', '30d': 'day', '3m': 'day', '6m': 'day', '1y': 'month',
 };
 
 const FMT: Record<'day' | 'month', string> = {

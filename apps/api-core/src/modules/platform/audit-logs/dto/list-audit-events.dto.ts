@@ -6,6 +6,7 @@ export const ListAuditEventsSchema = z.object({
   eventType: z.string().optional(),
   objectType: z.string().optional(),
   objectId: z.string().optional(),
+  search: z.string().optional(),
   accountId: z.string().uuid().optional(),
   businessId: z.string().uuid().optional(),
   from: z.string().datetime({ offset: true }).optional(),

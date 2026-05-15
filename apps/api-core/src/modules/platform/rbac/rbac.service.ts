@@ -11,6 +11,29 @@ export class RbacService {
     return this.platformDb.db;
   }
 
+  private slugifyRoleName(value: string) {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '.')
+      .replace(/\.{2,}/g, '.')
+      .replace(/^\.+|\.+$/g, '');
+  }
+
+  private async nextAvailableRoleKey(baseKey: string) {
+    const [existingBase] = await this.db.select({ id: roles.id }).from(roles).where(eq(roles.roleKey, baseKey)).limit(1);
+    if (!existingBase) return baseKey;
+
+    for (let i = 2; i < 1000; i += 1) {
+      const candidate = `${baseKey}-${i}`;
+      const [existing] = await this.db.select({ id: roles.id }).from(roles).where(eq(roles.roleKey, candidate)).limit(1);
+      if (!existing) return candidate;
+    }
+
+    throw new ConflictException('Could not generate unique role key');
+  }
+
   async listRoles() {
     const rows = await this.db
       .select({
@@ -146,18 +169,25 @@ export class RbacService {
     return { roles: rows.rows };
   }
 
-  async createRole(dto: { roleKey: string; roleName: string; description?: string; roleScope: string }) {
-    const [existing] = await this.db
-      .select({ id: roles.id })
-      .from(roles)
-      .where(eq(roles.roleKey, dto.roleKey))
-      .limit(1);
-    if (existing) throw new ConflictException('Role key already exists');
+  async createRole(dto: { roleKey?: string; roleName: string; description?: string; roleScope: string }) {
+    let roleKey = dto.roleKey?.trim();
+    if (!roleKey) {
+      const slug = this.slugifyRoleName(dto.roleName) || 'custom-role';
+      roleKey = `${dto.roleScope}.${slug}`.slice(0, 100);
+      roleKey = await this.nextAvailableRoleKey(roleKey);
+    } else {
+      const [existing] = await this.db
+        .select({ id: roles.id })
+        .from(roles)
+        .where(eq(roles.roleKey, roleKey))
+        .limit(1);
+      if (existing) throw new ConflictException('Role key already exists');
+    }
 
     const [created] = await this.db
       .insert(roles)
       .values({
-        roleKey: dto.roleKey,
+        roleKey,
         roleName: dto.roleName,
         description: dto.description ?? null,
         roleScope: dto.roleScope,

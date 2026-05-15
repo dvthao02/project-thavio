@@ -4,7 +4,7 @@ import { RbacService } from './rbac.service';
 import { RequirePermission } from '@decorators/require-permission.decorator';
 
 const CreateRoleSchema = z.object({
-  roleKey: z.string().min(2).max(100).regex(/^[a-z0-9_.-]+$/, 'Only lowercase letters, numbers, dots, dashes, underscores'),
+  roleKey: z.string().min(2).max(100).regex(/^[a-z0-9_.-]+$/, 'Only lowercase letters, numbers, dots, dashes, underscores').optional(),
   roleName: z.string().min(1).max(150),
   description: z.string().optional(),
   roleScope: z.enum(['platform', 'business']).default('platform'),
