@@ -486,8 +486,8 @@ export default function BusinessDetailPage() {
               label="Schema DB"
               value={<code className="text-xs bg-muted px-1.5 py-0.5 rounded">{business.schemaName ?? '—'}</code>}
             />
-            <InfoRow label="Tiền tệ" value={business.currencyCode} />
-            <InfoRow label="Múi giờ" value={business.timezoneName} />
+            <InfoRow label="Tiền tệ" value={CURRENCIES.find((c) => c.value === business.currencyCode)?.label ?? business.currencyCode} />
+            <InfoRow label="Múi giờ" value={TIMEZONES.find((t) => t.value === business.timezoneName)?.label ?? business.timezoneName} />
             <InfoRow
               label="Ngày tạo"
               value={new Date(business.createdAt).toLocaleString('vi-VN')}
@@ -542,9 +542,12 @@ export default function BusinessDetailPage() {
                           s.isActive ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
                         }`}>{s.isActive ? 'Hoạt động' : 'Ngừng'}</span>
                       </div>
-                      <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
                         {(s.city || s.address) && (
                           <span className="flex items-center gap-1"><MapPin size={11} />{[s.city, s.address].filter(Boolean).join(', ')}</span>
+                        )}
+                        {s.phone && (
+                          <span className="flex items-center gap-1"><Phone size={11} />{s.phone}</span>
                         )}
                         <span className="flex items-center gap-1"><Users size={11} />{storeStaff.length} nhân viên</span>
                         <span className="capitalize text-muted-foreground/70">{s.storeType}</span>
