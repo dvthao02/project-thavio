@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -e
+
+pnpm.cmd --dir apps/admin-web run check:encoding -- --staged
