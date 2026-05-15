@@ -66,7 +66,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
   }
 
   async list(dto: ListBusinessesDto, scopeAccountId?: string) {
-    const { page, limit, status, search } = dto;
+    const { page, limit, status, search, assigneeId } = dto;
     const offset = (page - 1) * limit;
 
     const filters: SQL[] = [];
@@ -76,6 +76,16 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         .select({ businessId: accountBusinesses.businessId })
         .from(accountBusinesses)
         .where(and(eq(accountBusinesses.accountId, scopeAccountId), eq(accountBusinesses.status, 'active')));
+      const ids = assigned.map((r) => r.businessId).filter(Boolean) as string[];
+      if (ids.length === 0) return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
+      filters.push(inArray(businesses.id, ids));
+    }
+
+    if (assigneeId) {
+      const assigned = await this.platformDb.db
+        .select({ businessId: accountBusinesses.businessId })
+        .from(accountBusinesses)
+        .where(and(eq(accountBusinesses.accountId, assigneeId), eq(accountBusinesses.status, 'active')));
       const ids = assigned.map((r) => r.businessId).filter(Boolean) as string[];
       if (ids.length === 0) return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
       filters.push(inArray(businesses.id, ids));

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
@@ -194,6 +194,7 @@ function CompactStat({
 }
 
 export default function BusinessesPage() {
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [trial, setTrial] = useState<TrialFilter>('');
@@ -202,12 +203,23 @@ export default function BusinessesPage() {
   const { permissions } = useAuthStore();
   const canCreate = permissions.includes('platform.business.create');
 
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const { data, isLoading, isFetching, refetch } = useQuery<ListResponse>({
-    queryKey: ['businesses', { search, status, page }],
+    queryKey: ['businesses', { search, status, assigneeId, page }],
     queryFn: () =>
       api
         .get('/platform/businesses', {
-          params: { search: search || undefined, status: status || undefined, page, limit: PAGE_SIZE },
+          params: {
+            search: search || undefined,
+            status: status || undefined,
+            assigneeId: assigneeId || undefined,
+            page,
+            limit: PAGE_SIZE,
+          },
         })
         .then((res) => res.data),
     placeholderData: (previous) => previous,
@@ -246,12 +258,8 @@ export default function BusinessesPage() {
   }, [accountsData?.data, rows]);
 
   const filteredRows = useMemo(
-    () =>
-      rows.filter((row) => {
-        if (assigneeId && row.assignedAccount?.id !== assigneeId) return false;
-        return matchTrialFilter(row, trial);
-      }),
-    [assigneeId, rows, trial],
+    () => rows.filter((row) => matchTrialFilter(row, trial)),
+    [rows, trial],
   );
 
   const stats = useMemo(
@@ -310,11 +318,8 @@ export default function BusinessesPage() {
             <input
               type="text"
               placeholder="Tìm tên, mã doanh nghiệp, email..."
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setPage(1);
-              }}
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
               className="h-10 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>

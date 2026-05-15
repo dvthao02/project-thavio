@@ -5,6 +5,7 @@ export const ListBusinessesSchema = z.object({
   limit: z.coerce.number().int().positive().max(100).optional().default(20),
   status: z.enum(['active', 'inactive', 'suspended', 'pending']).optional(),
   search: z.string().optional(),
+  assigneeId: z.string().uuid().optional(),
 });
 
 export type ListBusinessesDto = z.infer<typeof ListBusinessesSchema>;

@@ -283,7 +283,7 @@ export default function TrialsPage() {
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="overflow-x-auto overflow-hidden rounded-lg border border-border bg-card">
         <table className="w-full min-w-[1120px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
