@@ -886,7 +886,7 @@ export default function BusinessDetailPage() {
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setEditOpen(false)} className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition">Hủy</button>
               <button
-                onClick={() => updateMut.mutate(editForm)}
+                onClick={() => updateMut.mutate({ ...editForm, website: editForm.website || undefined })}
                 disabled={updateMut.isPending || !editForm.legalName}
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
               >
