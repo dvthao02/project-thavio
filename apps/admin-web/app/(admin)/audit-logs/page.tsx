@@ -531,8 +531,9 @@ export default function AuditLogsPage() {
       ) : null}
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="overflow-x-auto">
         {mode === 'events' ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[700px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Thời gian</th>
@@ -606,7 +607,7 @@ export default function AuditLogsPage() {
             </tbody>
           </table>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[600px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Thời gian</th>
@@ -682,6 +683,7 @@ export default function AuditLogsPage() {
             </tbody>
           </table>
         )}
+        </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
           <p className="text-xs text-muted-foreground">

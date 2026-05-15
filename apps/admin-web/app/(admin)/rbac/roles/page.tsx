@@ -344,7 +344,8 @@ function RolesPageInner() {
       )}
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[600px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
               <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Vai trò</th>
@@ -429,6 +430,7 @@ function RolesPageInner() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Create modal */}

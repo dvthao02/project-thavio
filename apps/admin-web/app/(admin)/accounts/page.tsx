@@ -79,6 +79,7 @@ const STATUS_FILTERS = [
 ] as const;
 
 export default function AccountsPage() {
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
@@ -88,6 +89,11 @@ export default function AccountsPage() {
   const { permissions } = useAuthStore();
   const canCreate = permissions.includes('platform.account.create');
   const canLock = permissions.includes('platform.account.lock');
+
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   useEffect(() => {
     if (!createOpen) return;
@@ -155,8 +161,8 @@ export default function AccountsPage() {
             <input
               type="text"
               placeholder="Tìm email hoặc tên đăng nhập..."
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="w-full rounded-md border border-input bg-background py-2 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
@@ -226,7 +232,8 @@ export default function AccountsPage() {
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[700px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
               <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Tài khoản</th>
@@ -325,6 +332,7 @@ export default function AccountsPage() {
             )}
           </tbody>
         </table>
+        </div>
 
         {total > 20 && (
           <div className="flex items-center justify-between border-t border-border px-5 py-3">
