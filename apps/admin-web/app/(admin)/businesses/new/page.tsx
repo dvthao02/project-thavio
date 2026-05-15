@@ -15,12 +15,15 @@ import {
   FileText,
   Globe2,
   ImageIcon,
+  Loader2,
   MapPin,
   Store,
   User,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
+import { TIMEZONES, CURRENCIES } from '@/lib/biz-constants';
+import { useProvinces, useDistricts, useWards } from '@/lib/vn-address';
 
 type Step = 1 | 2 | 3;
 
@@ -49,8 +52,11 @@ const DEFAULT_STORE = {
   email: '',
   phone: '',
   addressLine: '',
+  provinceCode: 0,
   provinceName: '',
+  districtCode: 0,
   districtName: '',
+  wardCode: 0,
   wardName: '',
 };
 
@@ -69,13 +75,6 @@ const STEPS = [
   { num: 3 as Step, label: 'Chủ sở hữu', icon: User },
 ];
 
-const TIMEZONES = [
-  { value: 'Asia/Ho_Chi_Minh', label: 'Việt Nam (UTC+7)' },
-  { value: 'Asia/Bangkok', label: 'Bangkok (UTC+7)' },
-  { value: 'Asia/Singapore', label: 'Singapore (UTC+8)' },
-  { value: 'UTC', label: 'UTC' },
-];
-
 const PLANS = [
   { value: 'starter', label: 'Starter' },
   { value: 'standard', label: 'Tiêu chuẩn' },
@@ -83,10 +82,6 @@ const PLANS = [
   { value: 'enterprise', label: 'Enterprise' },
 ];
 
-const CURRENCIES = [
-  { value: 'VND', label: 'VND' },
-  { value: 'USD', label: 'USD' },
-];
 
 function toSlug(value: string) {
   return value
@@ -175,6 +170,10 @@ export default function NewBusinessPage() {
   const [slugEdited, setSlugEdited] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const { data: provinces = [], isLoading: provincesLoading } = useProvinces();
+  const { data: districts = [], isLoading: districtsLoading } = useDistricts(store.provinceCode || null);
+  const { data: wards = [], isLoading: wardsLoading } = useWards(store.districtCode || null);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -398,10 +397,15 @@ export default function NewBusinessPage() {
                 value={biz.timezone}
                 onChange={(event) => setBiz((current) => ({ ...current, timezone: event.target.value }))}
               >
-                {TIMEZONES.map((timezone) => (
-                  <option key={timezone.value} value={timezone.value}>
-                    {timezone.label}
-                  </option>
+                {Object.entries(
+                  TIMEZONES.reduce<Record<string, typeof TIMEZONES>>((acc, tz) => {
+                    (acc[tz.group] ??= []).push(tz);
+                    return acc;
+                  }, {}),
+                ).map(([group, tzs]) => (
+                  <optgroup key={group} label={group}>
+                    {tzs.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                  </optgroup>
                 ))}
               </select>
             </Field>
@@ -567,28 +571,57 @@ export default function NewBusinessPage() {
 
             <div className="grid gap-4 lg:grid-cols-3">
               <Field label="Tỉnh / Thành phố">
-                <input
-                  className={INPUT}
-                  value={store.provinceName}
-                  onChange={(event) => setStore((current) => ({ ...current, provinceName: event.target.value }))}
-                  placeholder="Hồ Chí Minh"
-                />
+                <div className="relative">
+                  <select
+                    className={INPUT}
+                    value={store.provinceCode || ''}
+                    onChange={(e) => {
+                      const code = Number(e.target.value);
+                      const name = provinces.find((p) => p.code === code)?.name ?? '';
+                      setStore((s) => ({ ...s, provinceCode: code, provinceName: name, districtCode: 0, districtName: '', wardCode: 0, wardName: '' }));
+                    }}
+                  >
+                    <option value="">-- Chọn tỉnh/thành --</option>
+                    {provinces.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
+                  </select>
+                  {provincesLoading && <Loader2 size={13} className="absolute right-8 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />}
+                </div>
               </Field>
               <Field label="Quận / Huyện">
-                <input
-                  className={INPUT}
-                  value={store.districtName}
-                  onChange={(event) => setStore((current) => ({ ...current, districtName: event.target.value }))}
-                  placeholder="Quận 1"
-                />
+                <div className="relative">
+                  <select
+                    className={INPUT}
+                    value={store.districtCode || ''}
+                    disabled={!store.provinceCode}
+                    onChange={(e) => {
+                      const code = Number(e.target.value);
+                      const name = districts.find((d) => d.code === code)?.name ?? '';
+                      setStore((s) => ({ ...s, districtCode: code, districtName: name, wardCode: 0, wardName: '' }));
+                    }}
+                  >
+                    <option value="">-- Chọn quận/huyện --</option>
+                    {districts.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
+                  </select>
+                  {districtsLoading && <Loader2 size={13} className="absolute right-8 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />}
+                </div>
               </Field>
               <Field label="Phường / Xã">
-                <input
-                  className={INPUT}
-                  value={store.wardName}
-                  onChange={(event) => setStore((current) => ({ ...current, wardName: event.target.value }))}
-                  placeholder="Bến Nghé"
-                />
+                <div className="relative">
+                  <select
+                    className={INPUT}
+                    value={store.wardCode || ''}
+                    disabled={!store.districtCode}
+                    onChange={(e) => {
+                      const code = Number(e.target.value);
+                      const name = wards.find((w) => w.code === code)?.name ?? '';
+                      setStore((s) => ({ ...s, wardCode: code, wardName: name }));
+                    }}
+                  >
+                    <option value="">-- Chọn phường/xã --</option>
+                    {wards.map((w) => <option key={w.code} value={w.code}>{w.name}</option>)}
+                  </select>
+                  {wardsLoading && <Loader2 size={13} className="absolute right-8 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />}
+                </div>
               </Field>
             </div>
 

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
+import { TIMEZONES, CURRENCIES } from '@/lib/biz-constants';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -151,21 +152,6 @@ const STAFF_ROLES = [
   { value: 'kitchen',   label: 'Bếp / Pha chế' },
   { value: 'delivery',  label: 'Giao hàng' },
   { value: 'staff',     label: 'Nhân viên' },
-];
-
-const TIMEZONES = [
-  { value: 'Asia/Ho_Chi_Minh', label: 'Việt Nam (UTC+7)' },
-  { value: 'Asia/Bangkok', label: 'Bangkok (UTC+7)' },
-  { value: 'Asia/Singapore', label: 'Singapore (UTC+8)' },
-  { value: 'UTC', label: 'UTC' },
-];
-
-const CURRENCIES = [
-  { value: 'VND', label: 'VND — Việt Nam Đồng' },
-  { value: 'USD', label: 'USD — Đô la Mỹ' },
-  { value: 'EUR', label: 'EUR — Euro' },
-  { value: 'THB', label: 'THB — Baht Thái' },
-  { value: 'SGD', label: 'SGD — Đô la Singapore' },
 ];
 
 const DEFAULT_STAFF_FORM = {
@@ -874,7 +860,16 @@ export default function BusinessDetailPage() {
               </Field>
               <Field label="Múi giờ">
                 <select className={INPUT} value={editForm.timezoneName} onChange={(e) => setEditForm((f) => ({ ...f, timezoneName: e.target.value }))}>
-                  {TIMEZONES.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                  {Object.entries(
+                    TIMEZONES.reduce<Record<string, typeof TIMEZONES>>((acc, tz) => {
+                      (acc[tz.group] ??= []).push(tz);
+                      return acc;
+                    }, {}),
+                  ).map(([group, tzs]) => (
+                    <optgroup key={group} label={group}>
+                      {tzs.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                    </optgroup>
+                  ))}
                 </select>
               </Field>
               <Field label="Ghi chú vận hành">
@@ -889,7 +884,7 @@ export default function BusinessDetailPage() {
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setEditOpen(false)} className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition">Hủy</button>
               <button
-                onClick={() => updateMut.mutate({ ...editForm, website: editForm.website || undefined })}
+                onClick={() => updateMut.mutate(editForm)}
                 disabled={updateMut.isPending || !editForm.legalName}
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
               >
