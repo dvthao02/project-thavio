@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
@@ -25,9 +25,11 @@ interface AuditEvent {
   id: string;
   businessId: string | null;
   accountId: string | null;
+  accountName?: string | null;
   eventType: string;
   objectType: string;
   objectId: string | null;
+  objectName?: string | null;
   eventPayload: Record<string, unknown>;
   createdAt: string;
 }
@@ -61,6 +63,34 @@ interface AuditLogResponse {
   data: AuditLog[];
   meta: ListMeta;
 }
+
+interface AuditFilters {
+  eventType: string;
+  objectType: string;
+  objectId: string;
+  eventSearch: string;
+  tableName: string;
+  operation: OperationFilter;
+  recordId: string;
+  search: string;
+  from: string;
+  to: string;
+  limit: number;
+}
+
+const DEFAULT_FILTERS: AuditFilters = {
+  eventType: '',
+  objectType: '',
+  objectId: '',
+  eventSearch: '',
+  tableName: '',
+  operation: '',
+  recordId: '',
+  search: '',
+  from: '',
+  to: '',
+  limit: 50,
+};
 
 const EVENT_TONE: Record<string, string> = {
   platform_login_success: 'bg-emerald-500/10 text-emerald-700',
@@ -144,11 +174,11 @@ function recordLabel(log: AuditLog): string {
 
 function eventLabel(eventType: string) {
   const labels: Record<string, string> = {
-    platform_login_success: 'Đăng nhập thành công',
-    platform_login_failed: 'Đăng nhập thất bại',
+    platform_login_success: 'Đăng nhập',
+    platform_login_failed: 'Đăng nhập',
     platform_logout: 'Đăng xuất',
-    platform_impersonate_start: 'Bắt đầu hỗ trợ truy cập',
-    platform_impersonate_end: 'Kết thúc hỗ trợ truy cập',
+    platform_impersonate_start: 'Hỗ trợ truy cập',
+    platform_impersonate_end: 'Hỗ trợ truy cập',
     platform_account_status_changed: 'Đổi trạng thái tài khoản',
     platform_mfa_reset: 'Đặt lại MFA',
     platform_business_assigned: 'Gán nhân viên phụ trách',
@@ -170,7 +200,103 @@ function objectTypeLabel(objectType: string) {
 }
 
 function eventActor(event: AuditEvent) {
-  return payloadString(event.eventPayload, 'identifier') ?? shortId(event.accountId);
+  return event.accountName ?? payloadString(event.eventPayload, 'identifier') ?? shortId(event.accountId);
+}
+
+function parseUserAgent(userAgent: string | null) {
+  if (!userAgent) {
+    return { browser: '-', os: '-', deviceType: '-' };
+  }
+
+  const browser =
+    /Edg\/([\d.]+)/i.test(userAgent)
+      ? `Edge ${RegExp.$1}`
+      : /OPR\/([\d.]+)/i.test(userAgent)
+        ? `Opera ${RegExp.$1}`
+        : /Chrome\/([\d.]+)/i.test(userAgent)
+          ? `Chrome ${RegExp.$1}`
+          : /Firefox\/([\d.]+)/i.test(userAgent)
+            ? `Firefox ${RegExp.$1}`
+            : /Version\/([\d.]+).*Safari/i.test(userAgent)
+              ? `Safari ${RegExp.$1}`
+              : 'Unknown';
+
+  const os =
+    /Windows NT 10\.0/i.test(userAgent)
+      ? 'Windows 10'
+      : /Windows NT 6\.3/i.test(userAgent)
+        ? 'Windows 8.1'
+        : /Windows NT 6\.1/i.test(userAgent)
+          ? 'Windows 7'
+          : /Mac OS X ([\d_]+)/i.test(userAgent)
+            ? `macOS ${RegExp.$1.replaceAll('_', '.')}`
+            : /Android ([\d.]+)/i.test(userAgent)
+              ? `Android ${RegExp.$1}`
+              : /iPhone OS ([\d_]+)/i.test(userAgent)
+                ? `iOS ${RegExp.$1.replaceAll('_', '.')}`
+                : /Linux/i.test(userAgent)
+                  ? 'Linux'
+                  : 'Unknown';
+
+  const deviceType = /Mobile|iPhone|Android/i.test(userAgent)
+    ? 'Mobile'
+    : /iPad|Tablet/i.test(userAgent)
+      ? 'Tablet'
+      : 'Desktop';
+
+  return { browser, os, deviceType };
+}
+
+function eventUserAgent(event: AuditEvent) {
+  return payloadString(event.eventPayload, 'userAgent');
+}
+
+function eventDevice(event: AuditEvent) {
+  const parsed = parseUserAgent(eventUserAgent(event));
+  if (parsed.browser === '-' && parsed.os === '-') return '-';
+  return `${parsed.deviceType} • ${parsed.browser} • ${parsed.os}`;
+}
+
+function eventBrowser(event: AuditEvent) {
+  return parseUserAgent(eventUserAgent(event)).browser;
+}
+
+function eventOs(event: AuditEvent) {
+  return parseUserAgent(eventUserAgent(event)).os;
+}
+
+function eventResult(event: AuditEvent) {
+  if (event.eventType === 'platform_impersonate_start') return 'Bắt đầu';
+  if (event.eventType === 'platform_impersonate_end') return 'Kết thúc';
+  if (event.eventType.includes('failed')) return 'Thất bại';
+  if (event.eventType.includes('success') || event.eventType === 'platform_logout') return 'Thành công';
+  return 'Thông tin';
+}
+
+function eventFailureReason(event: AuditEvent) {
+  const reason = payloadString(event.eventPayload, 'reason');
+  if (!reason) return '-';
+
+  const labels: Record<string, string> = {
+    account_not_found: 'Không tìm thấy tài khoản',
+    not_platform_admin: 'Không có quyền quản trị nền tảng',
+    account_not_active: 'Tài khoản chưa kích hoạt',
+    invalid_password: 'Sai mật khẩu',
+  };
+  return labels[reason] ?? reason;
+}
+
+function eventLoginMethod(event: AuditEvent) {
+  return payloadString(event.eventPayload, 'loginMethod')
+    ?? (event.eventType.startsWith('platform_login_') ? 'Password' : '-');
+}
+
+function eventRequestId(event: AuditEvent) {
+  return payloadString(event.eventPayload, 'requestId') ?? '-';
+}
+
+function eventSessionId(event: AuditEvent) {
+  return payloadString(event.eventPayload, 'sessionId') ?? '-';
 }
 
 function EventBadge({ eventType }: { eventType: string }) {
@@ -224,55 +350,71 @@ function FieldList({ fields }: { fields: string[] | null }) {
 
 export default function AuditLogsPage() {
   const [mode, setMode] = useState<AuditMode>('events');
-  const [eventType, setEventType] = useState('');
-  const [objectId, setObjectId] = useState('');
-  const [tableName, setTableName] = useState('');
-  const [operation, setOperation] = useState<OperationFilter>('');
-  const [recordId, setRecordId] = useState('');
-  const [search, setSearch] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [filters, setFilters] = useState<AuditFilters>(DEFAULT_FILTERS);
+  const [draftFilters, setDraftFilters] = useState<AuditFilters>(DEFAULT_FILTERS);
   const [eventPage, setEventPage] = useState(1);
   const [dataPage, setDataPage] = useState(1);
-  const [limit, setLimit] = useState(50);
   const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
+  const [payloadOpenEventId, setPayloadOpenEventId] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+
+  const setDraftFilter = <K extends keyof AuditFilters>(key: K, value: AuditFilters[K]) => {
+    setDraftFilters((current) => ({ ...current, [key]: value }));
+  };
+
+  const invalidTimeRange = useMemo(() => {
+    const fromIso = toIsoDateTime(draftFilters.from);
+    const toIso = toIsoDateTime(draftFilters.to);
+    if (!fromIso || !toIso) return false;
+    return new Date(fromIso) > new Date(toIso);
+  }, [draftFilters.from, draftFilters.to]);
 
   const eventParams = useMemo(
     () => ({
       page: eventPage,
-      limit,
-      eventType: eventType || undefined,
-      objectId: objectId.trim() || undefined,
-      from: toIsoDateTime(from),
-      to: toIsoDateTime(to),
+      limit: filters.limit,
+      eventType: filters.eventType || undefined,
+      objectType: filters.objectType || undefined,
+      objectId: filters.objectId.trim() || undefined,
+      search: filters.eventSearch.trim() || undefined,
+      from: toIsoDateTime(filters.from),
+      to: toIsoDateTime(filters.to),
     }),
-    [eventPage, eventType, from, limit, objectId, to],
+    [eventPage, filters],
   );
 
   const dataParams = useMemo(
     () => ({
       page: dataPage,
-      limit,
-      tableName: tableName || undefined,
-      operation: operation || undefined,
-      recordId: recordId.trim() || undefined,
-      search: search.trim() || undefined,
-      from: toIsoDateTime(from),
-      to: toIsoDateTime(to),
+      limit: filters.limit,
+      tableName: filters.tableName || undefined,
+      operation: filters.operation || undefined,
+      recordId: filters.recordId.trim() || undefined,
+      search: filters.search.trim() || undefined,
+      from: toIsoDateTime(filters.from),
+      to: toIsoDateTime(filters.to),
     }),
-    [dataPage, from, limit, operation, recordId, search, tableName, to],
+    [dataPage, filters],
   );
 
   const eventTypesQuery = useQuery<string[]>({
     queryKey: ['audit-event-types'],
     queryFn: () => api.get('/platform/audit-logs/event-types').then((res) => res.data),
+    enabled: mode === 'events',
+    staleTime: 5 * 60_000,
+  });
+
+  const objectTypesQuery = useQuery<string[]>({
+    queryKey: ['audit-object-types'],
+    queryFn: () => api.get('/platform/audit-logs/object-types').then((res) => res.data),
+    enabled: mode === 'events',
     staleTime: 5 * 60_000,
   });
 
   const tableNamesQuery = useQuery<string[]>({
     queryKey: ['audit-log-table-names'],
     queryFn: () => api.get('/platform/audit-logs/table-names').then((res) => res.data),
+    enabled: mode === 'data',
     staleTime: 5 * 60_000,
   });
 
@@ -294,32 +436,29 @@ export default function AuditLogsPage() {
   const activePage = mode === 'events' ? eventPage : dataPage;
   const total = activeMeta?.total ?? 0;
   const totalPages = activeMeta?.totalPages ?? 1;
-  const start = total === 0 ? 0 : (activePage - 1) * limit + 1;
-  const end = Math.min(activePage * limit, total);
+  const start = total === 0 ? 0 : (activePage - 1) * filters.limit + 1;
+  const end = Math.min(activePage * filters.limit, total);
   const isLoading = mode === 'events' ? eventsQuery.isLoading : logsQuery.isLoading;
   const isFetching = mode === 'events' ? eventsQuery.isFetching : logsQuery.isFetching;
   const isError = mode === 'events' ? eventsQuery.isError : logsQuery.isError;
 
-  const updateFilter = (callback: () => void) => {
-    callback();
+  const applyFilters = () => {
+    if (invalidTimeRange) return;
+    setFilters(draftFilters);
     setEventPage(1);
     setDataPage(1);
     setSelectedEvent(null);
+    setPayloadOpenEventId(null);
     setSelectedLog(null);
   };
 
   const clearFilters = () => {
-    setEventType('');
-    setObjectId('');
-    setTableName('');
-    setOperation('');
-    setRecordId('');
-    setSearch('');
-    setFrom('');
-    setTo('');
+    setDraftFilters(DEFAULT_FILTERS);
+    setFilters(DEFAULT_FILTERS);
     setEventPage(1);
     setDataPage(1);
     setSelectedEvent(null);
+    setPayloadOpenEventId(null);
     setSelectedLog(null);
   };
 
@@ -331,6 +470,7 @@ export default function AuditLogsPage() {
   const changeMode = (nextMode: AuditMode) => {
     setMode(nextMode);
     setSelectedEvent(null);
+    setPayloadOpenEventId(null);
     setSelectedLog(null);
   };
 
@@ -388,139 +528,202 @@ export default function AuditLogsPage() {
         </p>
       </div>
 
-      <div className="grid gap-3 rounded-lg border border-border bg-card p-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]">
-        {mode === 'events' ? (
-          <>
-            <label className="space-y-1.5">
-              <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Activity size={13} />
-                Hành động
-              </span>
-              <select
-                value={eventType}
-                onChange={(event) => updateFilter(() => setEventType(event.target.value))}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">Tất cả hành động</option>
-                {(eventTypesQuery.data ?? []).map((name) => (
-                  <option key={name} value={name}>
-                    {eventLabel(name)}
-                  </option>
-                ))}
-              </select>
-            </label>
+      <div className="space-y-2 rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          {mode === 'events' ? (
+            <>
+              <label className="space-y-1.5">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Activity size={13} />
+                  Hành động
+                </span>
+                <select
+                  value={draftFilters.eventType}
+                  onChange={(event) => setDraftFilter('eventType', event.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Tất cả hành động</option>
+                  {(eventTypesQuery.data ?? []).map((name) => (
+                    <option key={name} value={name}>
+                      {eventLabel(name)}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <label className="space-y-1.5">
-              <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Search size={13} />
-                ID đối tượng
-              </span>
-              <input
-                value={objectId}
-                onChange={(event) => updateFilter(() => setObjectId(event.target.value))}
-                placeholder="Tài khoản, doanh nghiệp, phiên..."
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </label>
-          </>
-        ) : (
-          <>
-            <label className="space-y-1.5">
-              <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Database size={13} />
-                Bảng dữ liệu
-              </span>
-              <select
-                value={tableName}
-                onChange={(event) => updateFilter(() => setTableName(event.target.value))}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">Tất cả bảng</option>
-                {(tableNamesQuery.data ?? []).map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="space-y-1.5">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <ShieldAlert size={13} />
+                  Đối tượng
+                </span>
+                <select
+                  value={draftFilters.objectType}
+                  onChange={(event) => setDraftFilter('objectType', event.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Tất cả đối tượng</option>
+                  {(objectTypesQuery.data ?? []).map((name) => (
+                    <option key={name} value={name}>
+                      {objectTypeLabel(name)}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <label className="space-y-1.5">
-              <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <ShieldAlert size={13} />
-                Thao tác
-              </span>
-              <select
-                value={operation}
-                onChange={(event) => updateFilter(() => setOperation(event.target.value as OperationFilter))}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">Tất cả thao tác</option>
-                <option value="INSERT">Tạo mới</option>
-                <option value="UPDATE">Cập nhật</option>
-                <option value="DELETE">Xóa</option>
-              </select>
-            </label>
+              <label className="space-y-1.5">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Search size={13} />
+                  ID đối tượng
+                </span>
+                <input
+                  value={draftFilters.objectId}
+                  onChange={(event) => setDraftFilter('objectId', event.target.value)}
+                  placeholder="Tài khoản, doanh nghiệp, phiên..."
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </label>
 
-            <label className="space-y-1.5">
-              <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Search size={13} />
-                Tìm kiếm
-              </span>
-              <input
-                value={search}
-                onChange={(event) => updateFilter(() => setSearch(event.target.value))}
-                placeholder="Tên doanh nghiệp, tên đăng nhập, email..."
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </label>
-          </>
-        )}
+              <label className="space-y-1.5">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Search size={13} />
+                  Tìm trong payload
+                </span>
+                <input
+                  value={draftFilters.eventSearch}
+                  onChange={(event) => setDraftFilter('eventSearch', event.target.value)}
+                  placeholder="identifier, ip, requestId..."
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <label className="space-y-1.5">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Database size={13} />
+                  Bảng dữ liệu
+                </span>
+                <select
+                  value={draftFilters.tableName}
+                  onChange={(event) => setDraftFilter('tableName', event.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Tất cả bảng</option>
+                  {(tableNamesQuery.data ?? []).map((name) => (
+                    <option key={name} value={name}>
+                      {tableLabel(name)}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-        <label className="space-y-1.5">
-          <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <Filter size={13} />
-            Từ thời điểm
-          </span>
-          <input
-            type="datetime-local"
-            value={from}
-            onChange={(event) => updateFilter(() => setFrom(event.target.value))}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-        </label>
+              <label className="space-y-1.5">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <ShieldAlert size={13} />
+                  Thao tác
+                </span>
+                <select
+                  value={draftFilters.operation}
+                  onChange={(event) => setDraftFilter('operation', event.target.value as OperationFilter)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Tất cả thao tác</option>
+                  <option value="INSERT">Tạo mới</option>
+                  <option value="UPDATE">Cập nhật</option>
+                  <option value="DELETE">Xóa</option>
+                </select>
+              </label>
 
-        <label className="space-y-1.5">
-          <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <Filter size={13} />
-            Đến thời điểm
-          </span>
-          <input
-            type="datetime-local"
-            value={to}
-            onChange={(event) => updateFilter(() => setTo(event.target.value))}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-        </label>
+              <label className="space-y-1.5">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Search size={13} />
+                  Record ID
+                </span>
+                <input
+                  value={draftFilters.recordId}
+                  onChange={(event) => setDraftFilter('recordId', event.target.value)}
+                  placeholder="UUID bản ghi"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </label>
 
-        <div className="flex items-end gap-2">
-          <select
-            value={limit}
-            onChange={(event) => updateFilter(() => setLimit(Number(event.target.value)))}
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-label="Số dòng mỗi trang"
-          >
-            <option value={25}>25 dòng</option>
-            <option value={50}>50 dòng</option>
-            <option value={100}>100 dòng</option>
-          </select>
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-md border border-input px-3 text-sm font-medium transition hover:bg-muted"
-          >
-            <X size={15} />
-            Xóa lọc
-          </button>
+              <label className="space-y-1.5">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Search size={13} />
+                  Tìm kiếm
+                </span>
+                <input
+                  value={draftFilters.search}
+                  onChange={(event) => setDraftFilter('search', event.target.value)}
+                  placeholder="Tên doanh nghiệp, tên đăng nhập, email..."
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </label>
+            </>
+          )}
+
+          <label className="space-y-1.5">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Filter size={13} />
+              Từ thời điểm
+            </span>
+            <input
+              type="datetime-local"
+              value={draftFilters.from}
+              onChange={(event) => setDraftFilter('from', event.target.value)}
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+
+          <label className="space-y-1.5">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Filter size={13} />
+              Đến thời điểm
+            </span>
+            <input
+              type="datetime-local"
+              value={draftFilters.to}
+              onChange={(event) => setDraftFilter('to', event.target.value)}
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div className="flex items-end gap-2">
+            <select
+              value={draftFilters.limit}
+              onChange={(event) => setDraftFilter('limit', Number(event.target.value))}
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label="Số dòng mỗi trang"
+            >
+              <option value={25}>25 dòng</option>
+              <option value={50}>50 dòng</option>
+              <option value={100}>100 dòng</option>
+            </select>
+            <button
+              type="button"
+              onClick={applyFilters}
+              disabled={invalidTimeRange}
+              className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Filter size={15} />
+              Áp dụng
+            </button>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-md border border-input px-3 text-sm font-medium transition hover:bg-muted"
+            >
+              <X size={15} />
+              Xóa lọc
+            </button>
+          </div>
+          {invalidTimeRange ? (
+            <p className="text-xs text-destructive">Khoảng thời gian không hợp lệ: "Từ" phải trước "Đến".</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">Nhập bộ lọc và bấm "Áp dụng" để tải dữ liệu.</p>
+          )}
         </div>
       </div>
 
@@ -533,15 +736,15 @@ export default function AuditLogsPage() {
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="overflow-x-auto">
         {mode === 'events' ? (
-          <table className="w-full min-w-[700px] text-sm">
+          <table className="w-full min-w-[900px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Thời gian</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Hành động</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Tài khoản</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Đối tượng</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Thao tác</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Kết quả</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">IP</th>
-                <th className="px-4 py-3" />
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Thiết bị</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -556,53 +759,142 @@ export default function AuditLogsPage() {
                   <td colSpan={6} className="px-4 py-12 text-center">
                     <Activity size={34} className="mx-auto mb-2 text-muted-foreground/40" />
                     <p className="text-sm text-muted-foreground">Chưa có hoạt động nào được ghi nhận</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Đăng nhập, đăng xuất và hỗ trợ truy cập sẽ xuất hiện ở đây khi API ghi nhận sự kiện.</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Đăng nhập, đăng xuất và hỗ trợ truy cập sẽ xuất hiện ở đây khi API ghi nhận sự kiện.
+                    </p>
                   </td>
                 </tr>
               ) : (
-                eventsQuery.data.data.map((event) => (
-                  <tr
-                    key={event.id}
-                    className={`transition hover:bg-muted/20 ${selectedEvent?.id === event.id ? 'bg-primary/5' : ''}`}
-                  >
-                    <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
-                      {formatDateTime(event.createdAt)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <EventBadge eventType={event.eventType} />
-                    </td>
-                    <td className="max-w-[260px] px-4 py-3">
-                      <p className="truncate text-sm font-medium text-foreground" title={eventActor(event)}>
-                        {eventActor(event)}
-                      </p>
-                      <code className="block truncate text-xs text-muted-foreground" title={event.accountId ?? ''}>
-                        {shortId(event.accountId)}
-                      </code>
-                    </td>
-                    <td className="max-w-[280px] px-4 py-3">
-                      <p className="text-sm font-medium text-foreground">{objectTypeLabel(event.objectType)}</p>
-                      <code className="block truncate text-xs text-muted-foreground" title={event.objectId ?? ''}>
-                        {shortId(event.objectId)}
-                      </code>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
-                      {payloadString(event.eventPayload, 'ipAddress') ?? '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
+                eventsQuery.data.data.map((event) => {
+                  const isOpen = selectedEvent?.id === event.id;
+                  return (
+                    <Fragment key={event.id}>
+                      <tr
                         onClick={() => {
-                          setSelectedEvent(event);
+                          const isSameEvent = selectedEvent?.id === event.id;
+                          setSelectedEvent(isSameEvent ? null : event);
+                          setPayloadOpenEventId(null);
                           setSelectedLog(null);
                         }}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium transition hover:bg-muted"
+                        className={`cursor-pointer transition hover:bg-muted/20 ${isOpen ? 'bg-primary/5' : ''}`}
                       >
-                        <Eye size={14} />
-                        Chi tiết
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                        <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                          {formatDateTime(event.createdAt)}
+                        </td>
+                        <td className="max-w-[260px] px-4 py-3">
+                          <p className="truncate text-sm font-medium text-foreground" title={eventActor(event)}>
+                            {eventActor(event)}
+                          </p>
+                          <code className="block truncate text-xs text-muted-foreground" title={event.accountId ?? ''}>
+                            {shortId(event.accountId)}
+                          </code>
+                        </td>
+                        <td className="px-4 py-3">
+                          <EventBadge eventType={event.eventType} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                              eventResult(event) === 'Thành công'
+                                ? 'bg-emerald-500/10 text-emerald-700'
+                                : eventResult(event) === 'Thất bại'
+                                  ? 'bg-red-500/10 text-red-700'
+                                  : 'bg-slate-500/10 text-slate-700'
+                            }`}
+                          >
+                            {eventResult(event)}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                          {payloadString(event.eventPayload, 'ipAddress') ?? '-'}
+                        </td>
+                        <td className="max-w-[280px] px-4 py-3 text-xs text-muted-foreground">
+                          <p className="truncate" title={eventDevice(event)}>
+                            {eventDevice(event)}
+                          </p>
+                        </td>
+                      </tr>
+                      {isOpen ? (
+                        <tr className="bg-muted/15">
+                          <td colSpan={6} className="px-4 py-4">
+                            <div className="rounded-lg border border-border bg-card p-4">
+                              <div className="mb-3 flex items-center justify-end">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedEvent(null);
+                                    setPayloadOpenEventId(null);
+                                  }}
+                                  className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                  aria-label="Đóng chi tiết"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+
+                              <div className="mb-4 grid gap-3 text-xs md:grid-cols-2 xl:grid-cols-3">
+                                <div>
+                                  <p className="text-muted-foreground">Đối tượng</p>
+                                  <p className="mt-1 font-medium text-foreground">{objectTypeLabel(event.objectType)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">Browser</p>
+                                  <p className="mt-1 font-medium text-foreground">{eventBrowser(event)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">OS</p>
+                                  <p className="mt-1 font-medium text-foreground">{eventOs(event)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">Login method</p>
+                                  <p className="mt-1 font-medium text-foreground">{eventLoginMethod(event)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">Request ID</p>
+                                  <code className="mt-1 block truncate rounded bg-muted px-2 py-1" title={eventRequestId(event)}>
+                                    {eventRequestId(event)}
+                                  </code>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">Session ID</p>
+                                  <code className="mt-1 block truncate rounded bg-muted px-2 py-1" title={eventSessionId(event)}>
+                                    {eventSessionId(event)}
+                                  </code>
+                                </div>
+                                <div className="md:col-span-2 xl:col-span-2">
+                                  <p className="text-muted-foreground">Failure reason</p>
+                                  <p className="mt-1 font-medium text-foreground">{eventFailureReason(event)}</p>
+                                </div>
+                              </div>
+
+                              <div className="border-t border-border pt-3">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPayloadOpenEventId((current) => (current === event.id ? null : event.id))
+                                  }
+                                  className="inline-flex items-center gap-2 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+                                >
+                                  <ChevronRight
+                                    size={14}
+                                    className={`transition-transform ${payloadOpenEventId === event.id ? 'rotate-90' : ''}`}
+                                  />
+                                  Payload sự kiện
+                                </button>
+                                {payloadOpenEventId === event.id ? (
+                                  <div className="mt-3">
+                                    <JsonBlock title="Payload sự kiện" value={event.eventPayload} />
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -721,55 +1013,6 @@ export default function AuditLogsPage() {
         </div>
       </div>
 
-      {selectedEvent ? (
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs text-muted-foreground">{formatDateTime(selectedEvent.createdAt)}</p>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <EventBadge eventType={selectedEvent.eventType} />
-                <span className="text-sm text-muted-foreground">{objectTypeLabel(selectedEvent.objectType)}</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedEvent(null)}
-              className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-              aria-label="Đóng chi tiết"
-            >
-              <X size={16} />
-            </button>
-          </div>
-
-          <div className="mb-4 grid gap-3 text-xs md:grid-cols-4">
-            <div>
-              <p className="text-muted-foreground">Tài khoản</p>
-              <p className="mt-1 font-medium text-foreground">{eventActor(selectedEvent)}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">ID tài khoản</p>
-              <code className="mt-1 block truncate rounded bg-muted px-2 py-1" title={selectedEvent.accountId ?? ''}>
-                {selectedEvent.accountId ?? '-'}
-              </code>
-            </div>
-            <div>
-              <p className="text-muted-foreground">ID đối tượng</p>
-              <code className="mt-1 block truncate rounded bg-muted px-2 py-1" title={selectedEvent.objectId ?? ''}>
-                {selectedEvent.objectId ?? '-'}
-              </code>
-            </div>
-            <div>
-              <p className="text-muted-foreground">IP</p>
-              <p className="mt-1 font-medium text-foreground">
-                {payloadString(selectedEvent.eventPayload, 'ipAddress') ?? '-'}
-              </p>
-            </div>
-          </div>
-
-          <JsonBlock title="Payload sự kiện" value={selectedEvent.eventPayload} />
-        </div>
-      ) : null}
-
       {selectedLog ? (
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="mb-4 flex items-start justify-between gap-3">
@@ -856,3 +1099,4 @@ export default function AuditLogsPage() {
     </div>
   );
 }
+

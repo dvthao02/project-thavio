@@ -22,6 +22,12 @@ export class AuditLogsController {
   }
 
   @RequirePermission('platform.audit.view')
+  @Get('object-types')
+  getObjectTypes() {
+    return this.auditLogsService.getObjectTypes();
+  }
+
+  @RequirePermission('platform.audit.view')
   @Get()
   list(@Query() query: unknown) {
     const dto = ListAuditLogsSchema.parse(query);

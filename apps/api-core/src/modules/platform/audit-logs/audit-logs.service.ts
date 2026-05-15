@@ -1,37 +1,122 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { desc, eq, gte, lte, and, count, inArray, sql, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
-import { accounts, auditEvents, platformAuditLog } from '@schema/platform';
+import { accounts, auditEvents, businesses, platformAuditLog } from '@schema/platform';
 import type { ListAuditEventsDto } from './dto/list-audit-events.dto';
 import type { ListAuditLogsDto } from './dto/list-audit-logs.dto';
 
 const SENSITIVE_KEYS = new Set(['password', 'password_hash', 'pin_hash', 'token', 'refresh_token']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function stripSensitive(data: Record<string, unknown> | null): Record<string, unknown> | null {
-  if (!data) return null;
+function redactSensitive(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSensitive(item));
+  }
+
+  if (!value || typeof value !== 'object') return value;
+
+  const data = value as Record<string, unknown>;
   const result: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) {
-    result[k] = SENSITIVE_KEYS.has(k) ? '[REDACTED]' : v;
+    result[k] = SENSITIVE_KEYS.has(k) ? '[REDACTED]' : redactSensitive(v);
   }
   return result;
 }
 
+function stripSensitive(data: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!data) return null;
+  return redactSensitive(data) as Record<string, unknown>;
+}
+
+function isUuid(value: string | null | undefined): value is string {
+  return !!value && UUID_RE.test(value);
+}
+
 @Injectable()
 export class AuditLogsService {
+  private readonly optionsCacheTtlMs = 60_000;
+  private readonly optionsCache = new Map<string, { value: string[]; expiresAt: number }>();
+
   constructor(private readonly platformDb: PlatformDbService) {}
+
+  private validateTimeRange(from?: string, to?: string) {
+    if (!from || !to) return;
+    if (new Date(from) <= new Date(to)) return;
+    throw new BadRequestException('Invalid time range: `from` must be before or equal to `to`.');
+  }
+
+  private buildMeta(page: number, limit: number, total: number) {
+    return {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  private async resolveAccountNames(ids: Iterable<string>): Promise<Map<string, string>> {
+    const uniqueIds = [...new Set([...ids].filter((id) => isUuid(id)))];
+    if (uniqueIds.length === 0) return new Map();
+
+    const rows = await this.platformDb.db
+      .select({ id: accounts.id, fullName: accounts.fullName, username: accounts.username, email: accounts.email })
+      .from(accounts)
+      .where(inArray(accounts.id, uniqueIds));
+
+    const result = new Map<string, string>();
+    for (const row of rows) {
+      result.set(row.id, row.fullName ?? row.username ?? row.email ?? row.id);
+    }
+    return result;
+  }
+
+  private async resolveBusinessNames(ids: Iterable<string>): Promise<Map<string, string>> {
+    const uniqueIds = [...new Set([...ids].filter((id) => isUuid(id)))];
+    if (uniqueIds.length === 0) return new Map();
+
+    const rows = await this.platformDb.db
+      .select({ id: businesses.id, code: businesses.businessCode, legalName: businesses.legalName })
+      .from(businesses)
+      .where(inArray(businesses.id, uniqueIds));
+
+    const result = new Map<string, string>();
+    for (const row of rows) {
+      result.set(row.id, row.legalName ?? row.code ?? row.id);
+    }
+    return result;
+  }
+
+  private async getCachedList(key: string, resolver: () => Promise<string[]>): Promise<string[]> {
+    const now = Date.now();
+    const cached = this.optionsCache.get(key);
+    if (cached && cached.expiresAt > now) return cached.value;
+
+    const value = await resolver();
+    this.optionsCache.set(key, { value, expiresAt: now + this.optionsCacheTtlMs });
+    return value;
+  }
+
+  private isAccountObjectType(objectType: string) {
+    return objectType === 'account' || objectType === 'platform_auth';
+  }
+
+  private isBusinessObjectType(objectType: string) {
+    return objectType === 'business' || objectType === 'subscription';
+  }
 
   async list(dto: ListAuditLogsDto) {
     const { page, limit, tableName, operation, recordId, search, from, to } = dto;
     const offset = (page - 1) * limit;
     const db = this.platformDb.db;
+    this.validateTimeRange(from, to);
 
     const filters: SQL[] = [];
     if (tableName) filters.push(eq(platformAuditLog.tableName, tableName));
     if (operation) filters.push(eq(platformAuditLog.operation, operation));
     if (recordId) filters.push(eq(platformAuditLog.recordId, recordId));
-    if (search) {
-      const term = `%${search}%`;
+    const searchTerm = search?.trim();
+    if (searchTerm) {
+      const term = `%${searchTerm}%`;
       filters.push(sql`(${platformAuditLog.newData}::text ILIKE ${term} OR ${platformAuditLog.oldData}::text ILIKE ${term})`);
     }
     // Hide technical login heartbeat updates from data-change view.
@@ -68,17 +153,8 @@ export class AuditLogsService {
     ]);
 
     // Resolve account names for changedBy values that are UUIDs
-    const actorIds = [...new Set(rows.map((r) => r.changedBy).filter((v): v is string => !!v && UUID_RE.test(v)))];
-    const actorMap = new Map<string, string>();
-    if (actorIds.length > 0) {
-      const actorRows = await db
-        .select({ id: accounts.id, fullName: accounts.fullName, username: accounts.username })
-        .from(accounts)
-        .where(inArray(accounts.id, actorIds));
-      for (const a of actorRows) {
-        actorMap.set(a.id, a.fullName ?? a.username);
-      }
-    }
+    const actorIds = rows.map((row) => row.changedBy).filter((changedBy): changedBy is string => isUuid(changedBy));
+    const actorMap = await this.resolveAccountNames(actorIds);
 
     const data = rows.map((r) => ({
       ...r,
@@ -89,30 +165,34 @@ export class AuditLogsService {
 
     return {
       data,
-      meta: { page, limit, total: Number(total), totalPages: Math.ceil(Number(total) / limit) },
+      meta: this.buildMeta(page, limit, Number(total)),
     };
   }
 
   async getTableNames(): Promise<string[]> {
-    const db = this.platformDb.db;
-    const rows = await db
-      .selectDistinct({ tableName: platformAuditLog.tableName })
-      .from(platformAuditLog)
-      .orderBy(platformAuditLog.tableName);
-    return rows.map((r) => r.tableName);
+    return this.getCachedList('table-names', async () => {
+      const rows = await this.platformDb.db
+        .selectDistinct({ tableName: platformAuditLog.tableName })
+        .from(platformAuditLog)
+        .orderBy(platformAuditLog.tableName);
+      return rows.map((r) => r.tableName);
+    });
   }
 
   async listEvents(dto: ListAuditEventsDto) {
     const { page, limit, eventType, objectType, objectId, search, accountId, businessId, from, to } = dto;
     const offset = (page - 1) * limit;
     const db = this.platformDb.db;
+    this.validateTimeRange(from, to);
 
     const filters: SQL[] = [];
     if (eventType) filters.push(eq(auditEvents.eventType, eventType));
     if (objectType) filters.push(eq(auditEvents.objectType, objectType));
-    if (objectId) filters.push(eq(auditEvents.objectId, objectId));
-    if (search) {
-      const term = `%${search}%`;
+    const objectIdTerm = objectId?.trim();
+    if (objectIdTerm) filters.push(eq(auditEvents.objectId, objectIdTerm));
+    const searchTerm = search?.trim();
+    if (searchTerm) {
+      const term = `%${searchTerm}%`;
       filters.push(
         sql`(
           ${auditEvents.eventType} ILIKE ${term}
@@ -149,47 +229,56 @@ export class AuditLogsService {
       db.select({ total: count() }).from(auditEvents).where(where),
     ]);
 
-    const ids = new Set<string>();
+    const accountIds = new Set<string>();
+    const businessIds = new Set<string>();
+
     for (const row of rows) {
-      if (row.accountId && UUID_RE.test(row.accountId)) ids.add(row.accountId);
-      if (row.objectType === 'account' && row.objectId && UUID_RE.test(row.objectId)) ids.add(row.objectId);
-      if (row.objectType === 'platform_auth' && row.objectId && UUID_RE.test(row.objectId)) ids.add(row.objectId);
+      if (isUuid(row.accountId)) accountIds.add(row.accountId);
+      if (this.isAccountObjectType(row.objectType) && isUuid(row.objectId)) accountIds.add(row.objectId);
+      if (isUuid(row.businessId)) businessIds.add(row.businessId);
+      if (this.isBusinessObjectType(row.objectType) && isUuid(row.objectId)) businessIds.add(row.objectId);
     }
 
-    const accountMap = new Map<string, string>();
-    if (ids.size > 0) {
-      const accountRows = await db
-        .select({ id: accounts.id, fullName: accounts.fullName, username: accounts.username, email: accounts.email })
-        .from(accounts)
-        .where(inArray(accounts.id, [...ids]));
-      for (const account of accountRows) {
-        accountMap.set(account.id, account.fullName ?? account.username ?? account.email ?? account.id);
-      }
-    }
+    const [accountMap, businessMap] = await Promise.all([
+      this.resolveAccountNames(accountIds),
+      this.resolveBusinessNames(businessIds),
+    ]);
 
     const data = rows.map((row) => ({
       ...row,
       accountName: row.accountId ? (accountMap.get(row.accountId) ?? null) : null,
-      objectName:
-        row.objectType === 'account' || row.objectType === 'platform_auth'
-          ? row.objectId
-            ? (accountMap.get(row.objectId) ?? null)
-            : null
+      objectName: this.isAccountObjectType(row.objectType)
+        ? row.objectId
+          ? (accountMap.get(row.objectId) ?? null)
+          : null
+        : this.isBusinessObjectType(row.objectType)
+          ? (row.objectId ? (businessMap.get(row.objectId) ?? null) : row.businessId ? (businessMap.get(row.businessId) ?? null) : null)
           : null,
     }));
 
     return {
       data,
-      meta: { page, limit, total: Number(total), totalPages: Math.ceil(Number(total) / limit) },
+      meta: this.buildMeta(page, limit, Number(total)),
     };
   }
 
   async getEventTypes(): Promise<string[]> {
-    const db = this.platformDb.db;
-    const rows = await db
-      .selectDistinct({ eventType: auditEvents.eventType })
-      .from(auditEvents)
-      .orderBy(auditEvents.eventType);
-    return rows.map((r) => r.eventType);
+    return this.getCachedList('event-types', async () => {
+      const rows = await this.platformDb.db
+        .selectDistinct({ eventType: auditEvents.eventType })
+        .from(auditEvents)
+        .orderBy(auditEvents.eventType);
+      return rows.map((r) => r.eventType);
+    });
+  }
+
+  async getObjectTypes(): Promise<string[]> {
+    return this.getCachedList('object-types', async () => {
+      const rows = await this.platformDb.db
+        .selectDistinct({ objectType: auditEvents.objectType })
+        .from(auditEvents)
+        .orderBy(auditEvents.objectType);
+      return rows.map((r) => r.objectType);
+    });
   }
 }
