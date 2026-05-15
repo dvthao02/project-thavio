@@ -1,11 +1,11 @@
 ﻿import { Injectable } from '@nestjs/common';
-import { count, eq, desc, sql, gte, and, inArray, type SQL } from 'drizzle-orm';
+import { count, eq, desc, asc, sql, and, inArray, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { businesses, accounts, accountBusinesses } from '@schema/platform';
 
-export type Period = '7d' | '30d' | '3m' | '6m' | '1y';
+export type Period = '7d' | '30d' | 'thisMonth' | '3m' | '6m' | '1y';
 
-const INTERVAL: Record<Period, string> = {
+const INTERVAL: Record<Exclude<Period, 'thisMonth'>, string> = {
   '7d':  '7 days',
   '30d': '30 days',
   '3m':  '3 months',
@@ -14,7 +14,7 @@ const INTERVAL: Record<Period, string> = {
 };
 
 const GROUP_BY: Record<Period, 'day' | 'month'> = {
-  '7d': 'day', '30d': 'day', '3m': 'day', '6m': 'day', '1y': 'month',
+  '7d': 'day', '30d': 'day', 'thisMonth': 'day', '3m': 'day', '6m': 'day', '1y': 'month',
 };
 
 const FMT: Record<'day' | 'month', string> = {
@@ -25,12 +25,49 @@ const FMT: Record<'day' | 'month', string> = {
 export class DashboardService {
   constructor(private readonly platformDb: PlatformDbService) {}
 
+  async getAssignees(isFullAdmin = true, scopeAccountId?: string) {
+    const db = this.platformDb.db;
+    const assignedBusinessesExpr = sql<number>`COUNT(DISTINCT ${accountBusinesses.businessId})`;
+
+    const where = and(
+      eq(accountBusinesses.status, 'active'),
+      eq(accounts.status, 'active'),
+      eq(accounts.isPlatformAdmin, true),
+      !isFullAdmin && scopeAccountId ? eq(accounts.id, scopeAccountId) : undefined,
+    );
+
+    const rows = await db
+      .select({
+        id: accounts.id,
+        username: accounts.username,
+        fullName: accounts.fullName,
+        email: accounts.email,
+        assignedBusinesses: assignedBusinessesExpr,
+      })
+      .from(accountBusinesses)
+      .innerJoin(accounts, eq(accounts.id, accountBusinesses.accountId))
+      .where(where)
+      .groupBy(accounts.id, accounts.username, accounts.fullName, accounts.email)
+      .orderBy(desc(assignedBusinessesExpr), asc(accounts.fullName), asc(accounts.username));
+
+    return {
+      data: rows.map((row) => ({
+        ...row,
+        assignedBusinesses: Number(row.assignedBusinesses ?? 0),
+      })),
+    };
+  }
+
   async getStats(period: Period = '30d', assignedAccountId?: string, isFullAdmin = true) {
     const db = this.platformDb.db;
-    const interval = INTERVAL[period];
+    const interval = period === 'thisMonth' ? null : INTERVAL[period];
     const groupBy = GROUP_BY[period];
     const fmt = FMT[groupBy];
-    const since = sql`NOW() - INTERVAL ${sql.raw(`'${interval}'`)}`;
+    const since = interval
+      ? sql`NOW() - INTERVAL ${sql.raw(`'${interval}'`)}`
+      : sql`DATE_TRUNC('month', NOW())`;
+    const groupBySql = sql.raw(`'${groupBy}'`);
+    const fmtSql = sql.raw(`'${fmt}'`);
 
     // When filtering by assignee (or scoping non-admin), resolve their business IDs
     let bizIds: string[] | undefined;
@@ -59,41 +96,42 @@ export class DashboardService {
       return and(...clauses);
     };
 
-    // For raw-SQL queries (byPlan, byPeriod) add an optional IN clause
-    const bizIdClause = bizIds
+    const rawBizScope = bizIds
       ? bizIds.length > 0
-        ? `AND id = ANY('{${bizIds.join(',')}}'::uuid[])`
-        : 'AND 1=0'
-      : '';
+        ? sql`AND id IN (${sql.join(bizIds.map((bizId) => sql`${bizId}::uuid`), sql`, `)})`
+        : sql`AND 1=0`
+      : sql``;
+
+    const accountWhere = accountScopeId ? eq(accounts.id, accountScopeId) : undefined;
 
     const [
-      [{ total: totalBusinesses }],
-      [{ total: activeCount }],
-      [{ total: pendingCount }],
-      [{ total: suspendedCount }],
-      [{ total: inactiveCount }],
-      [{ total: trialCount }],
-      [{ total: newBusinesses }],
-      [{ total: totalAccounts }],
-      [{ total: lockedAccounts }],
-      [{ total: newAccounts }],
+      [businessMetrics],
+      [accountMetrics],
       recentBusinesses,
       recentAccounts,
       byPlanRows,
       byPeriodRows,
     ] = await Promise.all([
-      db.select({ total: count() }).from(businesses).where(w()),
-      db.select({ total: count() }).from(businesses).where(w(eq(businesses.status, 'active'))),
-      db.select({ total: count() }).from(businesses).where(w(eq(businesses.status, 'pending'))),
-      db.select({ total: count() }).from(businesses).where(w(eq(businesses.status, 'suspended'))),
-      db.select({ total: count() }).from(businesses).where(w(eq(businesses.status, 'inactive'))),
-      db.select({ total: count() }).from(businesses).where(
-        w(eq(businesses.status, 'active'), gte(businesses.createdAt, sql`NOW() - INTERVAL '10 days'`))
-      ),
-      db.select({ total: count() }).from(businesses).where(w(gte(businesses.createdAt, since as any))),
-      db.select({ total: count() }).from(accounts).where(accountScopeId ? eq(accounts.id, accountScopeId) : undefined),
-      db.select({ total: count() }).from(accounts).where(accountScopeId ? and(eq(accounts.id, accountScopeId), eq(accounts.status, 'locked')) : eq(accounts.status, 'locked')),
-      db.select({ total: count() }).from(accounts).where(accountScopeId ? and(eq(accounts.id, accountScopeId), gte(accounts.createdAt, since as any)) : gte(accounts.createdAt, since as any)),
+      db
+        .select({
+          total: count(),
+          active: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'active')`,
+          pending: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'pending')`,
+          suspended: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'suspended')`,
+          inactive: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'inactive')`,
+          trial: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'active' AND ${businesses.createdAt} >= NOW() - INTERVAL '10 days')`,
+          newInPeriod: sql<number>`COUNT(*) FILTER (WHERE ${businesses.createdAt} >= ${since})`,
+        })
+        .from(businesses)
+        .where(w()),
+      db
+        .select({
+          total: count(),
+          locked: sql<number>`COUNT(*) FILTER (WHERE ${accounts.status} = 'locked')`,
+          newInPeriod: sql<number>`COUNT(*) FILTER (WHERE ${accounts.createdAt} >= ${since})`,
+        })
+        .from(accounts)
+        .where(accountWhere),
       db
         .select({
           id: businesses.id,
@@ -107,7 +145,7 @@ export class DashboardService {
         .from(businesses)
         .where(w())
         .orderBy(desc(businesses.createdAt))
-        .limit(8),
+        .limit(5),
       db
         .select({
           id: accounts.id,
@@ -119,35 +157,37 @@ export class DashboardService {
           createdAt: accounts.createdAt,
         })
         .from(accounts)
-        .where(accountScopeId ? eq(accounts.id, accountScopeId) : undefined)
+        .where(accountWhere)
         .orderBy(desc(accounts.createdAt))
-        .limit(6),
+        .limit(5),
       // By plan
-      db.execute(sql.raw(
-        `SELECT subscription_plan AS plan, COUNT(*)::int AS total
-         FROM platform.businesses WHERE 1=1 ${bizIdClause}
-         GROUP BY subscription_plan ORDER BY total DESC`,
-      )),
+      db.execute(sql`
+        SELECT subscription_plan AS plan, COUNT(*)::int AS total
+        FROM platform.businesses
+        WHERE 1=1 ${rawBizScope}
+        GROUP BY subscription_plan
+        ORDER BY total DESC
+      `),
       // By period
-      db.execute(sql.raw(
-        `SELECT TO_CHAR(DATE_TRUNC('${groupBy}', created_at AT TIME ZONE 'UTC'), '${fmt}') AS label,
-                COUNT(*)::int AS total
-         FROM platform.businesses
-         WHERE created_at >= NOW() - INTERVAL '${interval}' ${bizIdClause}
-         GROUP BY DATE_TRUNC('${groupBy}', created_at AT TIME ZONE 'UTC')
-         ORDER BY DATE_TRUNC('${groupBy}', created_at AT TIME ZONE 'UTC') ASC`,
-      )),
+      db.execute(sql`
+        SELECT TO_CHAR(DATE_TRUNC(${groupBySql}, created_at AT TIME ZONE 'UTC'), ${fmtSql}) AS label,
+               COUNT(*)::int AS total
+        FROM platform.businesses
+        WHERE created_at >= ${since} ${rawBizScope}
+        GROUP BY DATE_TRUNC(${groupBySql}, created_at AT TIME ZONE 'UTC')
+        ORDER BY DATE_TRUNC(${groupBySql}, created_at AT TIME ZONE 'UTC') ASC
+      `),
     ]);
 
     return {
       businesses: {
-        total: Number(totalBusinesses),
-        active: Number(activeCount),
-        pending: Number(pendingCount),
-        suspended: Number(suspendedCount),
-        inactive: Number(inactiveCount),
-        trial: Number(trialCount),
-        newInPeriod: Number(newBusinesses),
+        total: Number(businessMetrics?.total ?? 0),
+        active: Number(businessMetrics?.active ?? 0),
+        pending: Number(businessMetrics?.pending ?? 0),
+        suspended: Number(businessMetrics?.suspended ?? 0),
+        inactive: Number(businessMetrics?.inactive ?? 0),
+        trial: Number(businessMetrics?.trial ?? 0),
+        newInPeriod: Number(businessMetrics?.newInPeriod ?? 0),
         byPlan: (byPlanRows.rows as { plan: string; total: number }[]).map((r) => ({
           plan: r.plan ?? 'unknown',
           total: Number(r.total),
@@ -158,9 +198,9 @@ export class DashboardService {
         })),
       },
       accounts: {
-        total: Number(totalAccounts),
-        locked: Number(lockedAccounts),
-        newInPeriod: Number(newAccounts),
+        total: Number(accountMetrics?.total ?? 0),
+        locked: Number(accountMetrics?.locked ?? 0),
+        newInPeriod: Number(accountMetrics?.newInPeriod ?? 0),
       },
       recentBusinesses,
       recentAccounts,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
@@ -28,7 +28,7 @@ import {
 } from 'recharts';
 import { api } from '@/lib/api';
 
-type Period = '7d' | '30d' | '3m' | '6m' | '1y';
+type Period = '7d' | '30d' | 'thisMonth' | '3m' | '6m' | '1y';
 
 interface DashboardStats {
   businesses: {
@@ -67,6 +67,7 @@ interface DashboardStats {
 const PERIODS: { key: Period; label: string }[] = [
   { key: '7d', label: '7 ngày' },
   { key: '30d', label: '30 ngày' },
+  { key: 'thisMonth', label: 'Tháng này' },
   { key: '3m', label: '3 tháng' },
   { key: '6m', label: '6 tháng' },
   { key: '1y', label: '1 năm' },
@@ -83,6 +84,7 @@ const STATUS_CFG: Record<string, { label: string; cls: string; color: string; do
 const PERIOD_DAYS: Record<Period, number> = {
   '7d': 7,
   '30d': 30,
+  'thisMonth': 31,
   '3m': 90,
   '6m': 180,
   '1y': 365,
@@ -139,6 +141,12 @@ function buildAreaData(raw: { label: string; total: number }[], period: Period) 
 
   if (period === '7d' || period === '30d') {
     return daily.map((d) => ({ label: d.label, 'Doanh nghiệp': d.value }));
+  }
+
+  if (period === 'thisMonth') {
+    const daysInCurrentMonth = new Date().getDate();
+    const monthlyDaily = buildDailySeries(raw, daysInCurrentMonth);
+    return monthlyDaily.map((d) => ({ label: d.label, 'Doanh nghiệp': d.value }));
   }
 
   if (period === '3m' || period === '6m') {
@@ -220,11 +228,22 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>('30d');
   const [assigneeId, setAssigneeId] = useState('');
 
-  const { data: assigneeAccounts } = useQuery<Array<{ id: string; username: string; fullName: string | null; email: string | null }>>({
+  const { data: assigneeAccounts } = useQuery<Array<{ id: string; username: string; fullName: string | null; email: string | null; assignedBusinesses: number }>>({
     queryKey: ['dashboard-assignee-options'],
-    queryFn: () => api.get('/platform/accounts', { params: { page: 1, limit: 100 } }).then((r) => r.data.data),
+    queryFn: () =>
+      api
+        .get('/platform/dashboard/assignees')
+        .then((r) => r.data.data),
     staleTime: 300_000,
   });
+
+  useEffect(() => {
+    if (!assigneeId) return;
+    const exists = (assigneeAccounts ?? []).some((account) => account.id === assigneeId);
+    if (!exists) {
+      setAssigneeId('');
+    }
+  }, [assigneeAccounts, assigneeId]);
 
   const { data, isLoading } = useQuery<DashboardStats>({
     queryKey: ['dashboard-stats', period, assigneeId],
@@ -286,7 +305,7 @@ export default function DashboardPage() {
               <option value="">Tất cả phụ trách</option>
               {(assigneeAccounts ?? []).map((account) => (
                 <option key={account.id} value={account.id}>
-                  {account.fullName || account.username || account.email || account.id}
+                  {`${account.fullName || account.username || account.email || account.id} (${account.assignedBusinesses})`}
                 </option>
               ))}
             </select>
