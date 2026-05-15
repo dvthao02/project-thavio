@@ -30,7 +30,7 @@ Repo dang co lech giua cac lop:
 Huong chuan hoa de build UI:
 
 - Access status: `active`, `pending`, `suspended`, `inactive`.
-- Subscription status: `trialing`, `active`, `past_due`, `suspended`, `cancelled`.
+- Subscription status: `trialing`, `trial_expired`, `active`, `past_due`, `suspended`, `cancelled`.
 - Neu backend tam thoi tra `trial`, frontend map thanh `trialing`.
 - Neu backend tam thoi thieu subscription row, frontend fallback theo `subscriptionExpiresAt` hoac `createdAt`.
 
@@ -50,7 +50,7 @@ Huong chuan hoa de build UI:
 |---|---|---|
 | `/businesses` | Danh sach doanh nghiep | `platform.business.view` |
 | `/businesses/new` | Tao doanh nghiep | `platform.business.create` |
-| `/subscriptions/trials` | Trial & gia han | `platform.subscription.view` |
+| `/subscriptions/trials` | Dung thu & gia han | `platform.subscription.view` |
 | `/subscriptions/plans` | Goi dich vu | `platform.subscription.view` |
 | `/billing/invoices` | Hop dong & hoa don | `platform.billing.view` |
 
@@ -69,9 +69,9 @@ Huong chuan hoa de build UI:
 | Route | Label | Permission |
 |---|---|---|
 | `/operations/assignees` | Nhan vien phu trach | `platform.business.view` |
-| `/support/tickets` | Ticket ho tro | `platform.support_ticket.view` |
+| `/support/tickets` | Yeu cau ho tro | `platform.support_ticket.view` |
 | `/billing/reconciliation` | Doi soat thanh toan | `platform.billing.view` |
-| `/support/impersonation` | Impersonate ho tro | `platform.business.impersonate` |
+| `/support/impersonation` | Ho tro truy cap | `platform.business.impersonate` |
 
 ### Cau hinh
 
@@ -123,7 +123,7 @@ type PlatformBusinessRow = {
   phone?: string | null;
   status: 'active' | 'pending' | 'suspended' | 'inactive';
   subscriptionPlan: 'starter' | 'standard' | 'professional' | 'enterprise' | string;
-  subscriptionStatus: 'trialing' | 'active' | 'past_due' | 'suspended' | 'cancelled';
+  subscriptionStatus: 'trialing' | 'trial_expired' | 'active' | 'past_due' | 'suspended' | 'cancelled';
   trialStartedAt?: string | null;
   trialEndsAt?: string | null;
   trialDaysLeft?: number | null;
@@ -153,14 +153,57 @@ type PlatformBusinessRow = {
 | Gia han trial | `POST /api/v1/platform/businesses/:id/trial/extend` | `platform.subscription.renew` | high |
 | Doi goi | `POST /api/v1/platform/businesses/:id/subscription/change-plan` | `platform.subscription.change_plan` | high |
 | Gan nhan vien phu trach | `PATCH /api/v1/platform/businesses/:id/assignee` | `platform.business.update` | yes |
-| Impersonate | `POST /api/v1/platform/businesses/:id/impersonate` | `platform.business.impersonate` | critical |
+| Ho tro truy cap | `POST /api/v1/platform/businesses/:id/impersonate` | `platform.business.impersonate` | critical |
+
+## Location catalog APIs
+
+Form tao doanh nghiep/cua hang khong nen cho nhap tu do tinh/thanh, quan/huyen, phuong/xa. Frontend nen lay danh muc tu API va gui ca `code` lan `name` de du lieu dia chi dong nhat.
+
+### Endpoints de backend bo sung
+
+| Endpoint | Query | Response |
+|---|---|---|
+| `GET /api/v1/platform/locations/provinces` | `search?` | `{ data: LocationOption[] }` |
+| `GET /api/v1/platform/locations/districts` | `provinceCode` | `{ data: LocationOption[] }` |
+| `GET /api/v1/platform/locations/wards` | `districtCode` | `{ data: LocationOption[] }` |
+
+```ts
+type LocationOption = {
+  code: string;
+  name: string;
+  fullName?: string;
+};
+```
+
+### Payload tao first store nen tien toi
+
+```ts
+firstStore: {
+  storeName: string;
+  storeCode?: string;
+  addressLine?: string;
+  provinceCode: string;
+  provinceName: string;
+  districtCode?: string;
+  districtName?: string;
+  wardCode?: string;
+  wardName?: string;
+}
+```
+
+Trong database hien tai neu moi co `stores.address`, `stores.city`, backend co the tam map:
+
+- `address = [addressLine, wardName, districtName, provinceName].filter(Boolean).join(', ')`
+- `city = provinceName`
+
+Nhung ve lau dai nen bo sung cot dia chi co cau truc cho `stores`: `address_line`, `province_code`, `province_name`, `district_code`, `district_name`, `ward_code`, `ward_name`.
 
 ## Audit APIs
 
 Admin UI tach 2 loai audit:
 
 - `platform_audit_log`: thay doi row trong database, phu hop xem INSERT/UPDATE/DELETE va oldData/newData.
-- `audit_events`: su kien nghiep vu cua platform admin, vi du login/logout, impersonate, export, reset MFA, change plan.
+- `audit_events`: su kien nghiep vu cua admin nen tang, vi du dang nhap/dang xuat, ho tro truy cap, xuat du lieu, reset MFA, doi goi.
 
 ### Data change logs
 
@@ -200,15 +243,15 @@ Query params:
 
 `GET /api/v1/platform/audit-logs/event-types` tra `string[]`.
 
-Moi thao tac admin platform co y nghia nghiep vu nen ghi `audit_events`, khong chi dua vao DB trigger. Cac event type toi thieu:
+Moi thao tac admin nen tang co y nghia nghiep vu nen ghi `audit_events`, khong chi dua vao DB trigger. Cac event type toi thieu:
 
 | Event type | Khi nao ghi |
 |---|---|
 | `platform_login_success` | Dang nhap platform thanh cong |
 | `platform_login_failed` | Dang nhap platform that bai |
 | `platform_logout` | Dang xuat platform |
-| `platform_impersonate_start` | Bat dau impersonate tenant |
-| `platform_impersonate_end` | Ket thuc impersonate tenant |
+| `platform_impersonate_start` | Bat dau ho tro truy cap doanh nghiep |
+| `platform_impersonate_end` | Ket thuc ho tro truy cap doanh nghiep |
 | `platform_account_status_changed` | Khoa/mo khoa/vo hieu hoa account |
 | `platform_mfa_reset` | Reset MFA |
 | `platform_business_assigned` | Gan nhan vien phu trach business |
@@ -223,7 +266,33 @@ Moi thao tac admin platform co y nghia nghiep vu nen ghi `audit_events`, khong c
 - `trialDaysLeft`: backend nen tra so nguyen, tinh theo timezone platform.
 - `trial = active`: `subscriptionStatus = trialing` va `trialEndsAt >= now + 2 days`.
 - `trial = expiring`: `subscriptionStatus = trialing` va `0 <= trialDaysLeft <= 2`.
-- `trial = expired`: `subscriptionStatus = trialing` va `trialEndsAt < now`, hoac access da `suspended` vi het trial.
+- `trial = expired`: `subscriptionStatus = trial_expired`.
+
+## API trial dung nghiep vu
+
+Nguon dung chuan cua UI `/subscriptions/trials` la backend, frontend khong tu tinh lifecycle tu `createdAt`.
+
+Backend nen sua luong hien tai theo huong:
+
+1. Tao doanh nghiep moi:
+   - `business.status = active`
+   - tao `business_subscriptions` voi `status = trialing`
+   - `currentPeriodStart = now`
+   - `currentPeriodEnd = now + 10 days`
+   - khong tao subscription `active` neu khach chua thanh toan.
+2. `GET /platform/businesses` tra:
+   - `subscriptionStatus = trialing` neu trong trial.
+   - `subscriptionStatus = trial_expired` neu het trial nhung chua gia han.
+   - `subscriptionStatus = active` chi khi da co goi tra phi dang hieu luc.
+   - `trialEndsAt = business_subscriptions.currentPeriodEnd` cho trial.
+   - `trialDaysLeft = Math.ceil((trialEndsAt - now) / 86400000)` khi `trialing`, nguoc lai `null`.
+3. Job khoa het trial:
+   - Neu muon cho admin co khoang xu ly: giu `business.status = active`, `subscriptionStatus = trial_expired`.
+   - Neu muon khoa ngay: set `business.status = suspended`, `subscriptionStatus = trial_expired`.
+   - Khong map het trial thanh `active`.
+4. API list nen ho tro filter server-side:
+   - `subscriptionStatus=trialing|trial_expired`
+   - `trial=expiring` voi `0 < trialDaysLeft <= 2`
 
 ## Placeholder policy cho frontend
 

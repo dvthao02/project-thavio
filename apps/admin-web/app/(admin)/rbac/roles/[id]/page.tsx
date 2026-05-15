@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, Edit2, KeyRound, Loader2, Plus, ShieldCheck, Trash2, Users, X } from 'lucide-react';
+import { ChevronLeft, Crown, Edit2, KeyRound, Layers3, Loader2, Plus, ShieldCheck, Trash2, Users, X } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface Permission {
@@ -52,6 +52,35 @@ const SCOPE_TYPE_LABEL: Record<string, string> = {
 };
 
 const INPUT = 'w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30';
+
+function CompactStat({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  sub: string;
+  icon: React.ElementType;
+  tone: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${tone}`}>
+        <Icon size={16} />
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <p className="text-lg font-bold leading-none text-foreground">{value}</p>
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+        </div>
+        <p className="mt-1 truncate text-[11px] text-muted-foreground">{sub}</p>
+      </div>
+    </div>
+  );
+}
 
 function useEscapeKey(active: boolean, handler: () => void) {
   useEffect(() => {
@@ -158,6 +187,7 @@ export default function RoleDetailPage() {
     if (!byModule[p.moduleKey]) byModule[p.moduleKey] = [];
     byModule[p.moduleKey].push(p);
   }
+  const moduleCount = Object.keys(byModule).length;
 
   const assignedIds = new Set(role.permissions.map((p) => p.id));
 
@@ -221,8 +251,39 @@ export default function RoleDetailPage() {
         </div>
       </div>
 
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <CompactStat
+          label="Quyền"
+          value={role.permissions.length}
+          sub="Permission được gán"
+          icon={KeyRound}
+          tone="bg-primary/10 text-primary"
+        />
+        <CompactStat
+          label="Module"
+          value={moduleCount}
+          sub="Nhóm nghiệp vụ"
+          icon={Layers3}
+          tone="bg-sky-500/10 text-sky-700"
+        />
+        <CompactStat
+          label="Tài khoản"
+          value={role.accounts.length}
+          sub="Đang dùng vai trò"
+          icon={Users}
+          tone="bg-emerald-500/10 text-emerald-700"
+        />
+        <CompactStat
+          label="Loại vai trò"
+          value={role.isSystem ? 'Hệ thống' : 'Tùy chỉnh'}
+          sub={scopeMeta.label}
+          icon={role.isSystem ? Crown : ShieldCheck}
+          tone={role.isSystem ? 'bg-amber-500/10 text-amber-700' : 'bg-violet-500/10 text-violet-700'}
+        />
+      </div>
+
       {/* Permissions */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-4">
         <div className="mb-4 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <KeyRound size={16} className="text-muted-foreground" />
@@ -280,7 +341,7 @@ export default function RoleDetailPage() {
 
       {/* Assigned accounts */}
       {role.accounts.length > 0 && (
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-4">
           <div className="mb-4 flex items-center gap-2">
             <Users size={16} className="text-muted-foreground" />
             <h2 className="text-sm font-semibold text-foreground">

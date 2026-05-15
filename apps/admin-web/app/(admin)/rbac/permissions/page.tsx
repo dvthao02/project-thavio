@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, KeyRound, Search, ShieldCheck, X, Crown, Info } from 'lucide-react';
+import { Building2, Crown, Info, KeyRound, Layers3, Search, ShieldCheck, X } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface Permission {
@@ -28,6 +28,35 @@ interface RoleItem {
 }
 
 type Scope = 'platform' | 'business';
+
+function CompactStat({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  sub: string;
+  icon: React.ElementType;
+  tone: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${tone}`}>
+        <Icon size={16} />
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <p className="text-lg font-bold leading-none text-foreground">{value}</p>
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+        </div>
+        <p className="mt-1 truncate text-[11px] text-muted-foreground">{sub}</p>
+      </div>
+    </div>
+  );
+}
 
 function PermissionRolesModal({ permission, onClose }: { permission: Permission; onClose: () => void }) {
   useEffect(() => {
@@ -150,6 +179,10 @@ export default function PermissionsPage() {
   const totalShown = modules.reduce((s, m) => s + m.permissions.length, 0);
   const unusedCount =
     data?.modules.reduce((s, m) => s + m.permissions.filter((p) => p.roleCount === 0).length, 0) ?? 0;
+  const moduleCount = data?.modules.length ?? 0;
+  const assignedCount = (data?.total ?? 0) - unusedCount;
+  const roleUsageCount =
+    data?.modules.reduce((sum, module) => sum + module.permissions.reduce((inner, p) => inner + p.roleCount, 0), 0) ?? 0;
 
   return (
     <div className="space-y-5">
@@ -164,27 +197,57 @@ export default function PermissionsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          {scope === 'platform' && unusedCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setOnlyUnused((v) => !v)}
-              className={`rounded-md border px-3 py-1.5 text-xs font-medium transition ${
-                onlyUnused
-                  ? 'border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/30'
-                  : 'border-border text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              Chưa gán role ({unusedCount})
-            </button>
-          )}
-          <div className="rounded-lg border border-border bg-card px-3 py-1.5 text-center min-w-[64px]">
-            <p className="text-2xl font-bold text-foreground">
-              {isLoading ? '—' : search || onlyUnused ? totalShown : (data?.total ?? 0)}
-            </p>
-            <p className="text-xs text-muted-foreground">{search || onlyUnused ? 'kết quả' : 'tổng quyền'}</p>
-          </div>
-        </div>
+        {scope === 'platform' && unusedCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setOnlyUnused((v) => !v)}
+            className={`rounded-md border px-3 py-1.5 text-xs font-medium transition ${
+              onlyUnused
+                ? 'border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/30'
+                : 'border-border text-muted-foreground hover:bg-muted'
+            }`}
+          >
+            Chưa gán role ({unusedCount})
+          </button>
+        )}
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <CompactStat
+          label="Tổng quyền"
+          value={isLoading ? '-' : data?.total ?? 0}
+          sub={scope === 'platform' ? 'Quyền platform' : 'Quyền cửa hàng'}
+          icon={KeyRound}
+          tone="bg-primary/10 text-primary"
+        />
+        <CompactStat
+          label="Module"
+          value={moduleCount}
+          sub="Nhóm quyền nghiệp vụ"
+          icon={Layers3}
+          tone="bg-sky-500/10 text-sky-700"
+        />
+        <CompactStat
+          label="Đã gán role"
+          value={assignedCount}
+          sub={`${unusedCount} quyền chưa dùng`}
+          icon={ShieldCheck}
+          tone="bg-emerald-500/10 text-emerald-700"
+        />
+        <CompactStat
+          label="Lượt gán"
+          value={roleUsageCount}
+          sub="Tổng role-permission"
+          icon={Crown}
+          tone="bg-violet-500/10 text-violet-700"
+        />
+        <CompactStat
+          label="Đang hiển thị"
+          value={isLoading ? '-' : search || onlyUnused ? totalShown : data?.total ?? 0}
+          sub={search || onlyUnused ? 'Theo bộ lọc' : 'Toàn bộ danh sách'}
+          icon={Building2}
+          tone="bg-amber-500/10 text-amber-700"
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

@@ -3,11 +3,12 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { AlertTriangle, Building2, CheckCircle, Clock3, Eye, RotateCcw, UserCheck } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle, Clock3, Eye, RotateCcw, Store, UserCheck } from 'lucide-react';
 import { api } from '@/lib/api';
 
 const TRIAL_DAYS = 10;
 
+type SubscriptionStatus = 'trialing' | 'trial_expired' | 'active' | 'past_due' | 'suspended' | 'cancelled';
 type TrialTab = 'all' | 'trialing' | 'expiring' | 'expired';
 
 interface Business {
@@ -15,9 +16,9 @@ interface Business {
   businessCode: string;
   legalName: string;
   brandName: string | null;
-  status: string;
+  status: 'active' | 'pending' | 'suspended' | 'inactive';
   subscriptionPlan: string;
-  subscriptionStatus: string;
+  subscriptionStatus: SubscriptionStatus;
   trialEndsAt: string | null;
   trialDaysLeft: number | null;
   createdAt: string;
@@ -32,97 +33,179 @@ interface ListResponse {
 
 const TAB_CONFIG: { key: TrialTab; label: string }[] = [
   { key: 'all', label: 'Tất cả' },
-  { key: 'trialing', label: 'Đang dùng thử' },
-  { key: 'expiring', label: 'Sắp hết hạn ≤2 ngày' },
+  { key: 'trialing', label: 'Đang trial' },
+  { key: 'expiring', label: 'Sắp hết hạn (≤2 ngày)' },
   { key: 'expired', label: 'Đã hết hạn' },
 ];
 
+const EMPTY_MESSAGES: Record<TrialTab, { title: string; description: string; good?: boolean }> = {
+  all: {
+    title: 'Chưa có doanh nghiệp nào đang trong giai đoạn dùng thử',
+    description: 'Doanh nghiệp mới tạo với gói dùng thử sẽ xuất hiện tại đây.',
+  },
+  trialing: {
+    title: 'Không có doanh nghiệp nào đang dùng thử',
+    description: 'Các doanh nghiệp đã chuyển sang trả phí hoặc chưa có dữ liệu dùng thử.',
+  },
+  expiring: {
+    title: 'Không có doanh nghiệp nào sắp hết hạn',
+    description: 'Chưa có doanh nghiệp nào còn từ 1 đến 2 ngày dùng thử.',
+    good: true,
+  },
+  expired: {
+    title: 'Không có doanh nghiệp nào hết trial - tốt lắm!',
+    description: 'Không có doanh nghiệp cần xử lý hết hạn dùng thử.',
+    good: true,
+  },
+};
+
 function formatDate(value: string | null | undefined) {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-function trialTone(b: Business) {
-  if (b.subscriptionStatus === 'trial_expired') {
+function expiredDays(trialEndsAt: string | null) {
+  if (!trialEndsAt) return 0;
+  const end = new Date(trialEndsAt);
+  if (Number.isNaN(end.getTime())) return 0;
+  return Math.max(0, Math.floor((Date.now() - end.getTime()) / 86_400_000));
+}
+
+function trialProgress(row: Business) {
+  if (row.subscriptionStatus === 'trial_expired') return 100;
+  const daysUsed = TRIAL_DAYS - (row.trialDaysLeft ?? 0);
+  return Math.min(100, Math.max(0, (daysUsed / TRIAL_DAYS) * 100));
+}
+
+function trialTone(row: Business) {
+  if (row.subscriptionStatus === 'trial_expired') {
     return { bar: 'bg-red-500', badge: 'bg-red-500/10 text-red-700' };
   }
-  const left = b.trialDaysLeft ?? 0;
-  if (left <= 2) return { bar: 'bg-orange-500', badge: 'bg-orange-500/10 text-orange-700' };
+
+  const left = row.trialDaysLeft ?? 0;
+  if (left <= 2 && left > 0) return { bar: 'bg-orange-500', badge: 'bg-orange-500/10 text-orange-700' };
   if (left > 5) return { bar: 'bg-emerald-500', badge: 'bg-emerald-500/10 text-emerald-700' };
-  return { bar: 'bg-sky-500', badge: 'bg-sky-500/10 text-sky-700' };
+  return { bar: 'bg-blue-500', badge: 'bg-blue-500/10 text-blue-700' };
 }
 
-function progressPct(b: Business) {
-  if (b.subscriptionStatus === 'trial_expired') return 100;
-  const left = b.trialDaysLeft ?? 0;
-  return Math.min(100, Math.max(0, ((TRIAL_DAYS - left) / TRIAL_DAYS) * 100));
-}
-
-function daysLabel(b: Business) {
-  if (b.subscriptionStatus === 'trial_expired') {
-    if (!b.trialEndsAt) return 'Đã hết hạn';
-    const overdue = Math.floor((Date.now() - new Date(b.trialEndsAt).getTime()) / 86_400_000);
-    return `Hết hạn ${overdue} ngày trước`;
+function trialLabel(row: Business) {
+  if (row.subscriptionStatus === 'trial_expired') {
+    const days = expiredDays(row.trialEndsAt);
+    return days > 0 ? `Đã hết hạn ${days} ngày` : 'Đã hết hạn';
   }
-  const left = b.trialDaysLeft ?? 0;
-  return left === 0 ? 'Hôm nay hết hạn' : `Còn ${left} ngày`;
+
+  const left = row.trialDaysLeft ?? 0;
+  if (left <= 0) return 'Hết hạn hôm nay';
+  return `Còn ${left} ngày`;
 }
 
-function StatCard({ label, value, sub, tone, icon: Icon }: {
-  label: string; value: number; sub: string; tone: string; icon: React.ElementType;
+function statusBadge(row: Business) {
+  if (row.subscriptionStatus === 'trial_expired') {
+    return <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-700">Đã hết hạn</span>;
+  }
+
+  if ((row.trialDaysLeft ?? 0) <= 2) {
+    return (
+      <span className="rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-700">
+        Sắp hết hạn
+      </span>
+    );
+  }
+
+  return <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-700">Đang dùng thử</span>;
+}
+
+function CompactStat({
+  label,
+  value,
+  description,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number;
+  description: string;
+  icon: React.ElementType;
+  tone: string;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className={`mb-4 flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
-        <Icon size={17} />
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${tone}`}>
+        <Icon size={16} />
       </div>
-      <p className="text-2xl font-bold text-foreground">{value}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{label}</p>
-      <p className="mt-2 text-xs text-muted-foreground">{sub}</p>
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <p className="text-lg font-bold leading-none text-foreground">{value}</p>
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+        </div>
+        <p className="mt-1 truncate text-[11px] text-muted-foreground">{description}</p>
+      </div>
     </div>
   );
 }
 
-const EMPTY_MESSAGES: Record<TrialTab, { title: string; sub: string; good?: boolean }> = {
-  all: { title: 'Chưa có doanh nghiệp dùng thử nào.', sub: 'Doanh nghiệp mới tạo sẽ xuất hiện ở đây.' },
-  trialing: { title: 'Không có doanh nghiệp đang dùng thử.', sub: '' },
-  expiring: { title: 'Không có doanh nghiệp sắp hết hạn.', sub: 'Tốt lắm — không cần chăm sóc khẩn.', good: true },
-  expired: { title: 'Không có doanh nghiệp đã hết hạn dùng thử.', sub: 'Tất cả đều đã chuyển đổi hoặc đang trong thời hạn.', good: true },
-};
+function SkeletonRows() {
+  return (
+    <>
+      {Array.from({ length: 3 }).map((_, rowIndex) => (
+        <tr key={rowIndex}>
+          {Array.from({ length: 7 }).map((__, cellIndex) => (
+            <td key={cellIndex} className="px-4 py-4">
+              <div className="h-4 animate-pulse rounded bg-muted" />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
 
 export default function TrialsPage() {
   const [tab, setTab] = useState<TrialTab>('all');
 
-  const { data, isLoading, isError, refetch, isFetching } = useQuery<ListResponse>({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery<ListResponse>({
     queryKey: ['subscription-trials'],
-    queryFn: () => api.get('/platform/businesses', { params: { limit: 100 } }).then((r) => r.data),
-    placeholderData: (prev) => prev,
+    queryFn: () => api.get('/platform/businesses', { params: { limit: 100 } }).then((res) => res.data),
+    placeholderData: (previous) => previous,
   });
 
   const rows = useMemo(() => {
-    const all = (data?.data ?? []).filter(
-      (b) => b.subscriptionStatus === 'trialing' || b.subscriptionStatus === 'trial_expired',
+    const trialRows = (data?.data ?? []).filter(
+      (row) => row.subscriptionStatus === 'trialing' || row.subscriptionStatus === 'trial_expired',
     );
-    return all.sort((a, b) => {
+
+    return [...trialRows].sort((a, b) => {
       if (a.subscriptionStatus !== b.subscriptionStatus) {
         return a.subscriptionStatus === 'trial_expired' ? -1 : 1;
       }
-      return (a.trialDaysLeft ?? 0) - (b.trialDaysLeft ?? 0);
+
+      if (a.subscriptionStatus === 'trial_expired') {
+        return expiredDays(b.trialEndsAt) - expiredDays(a.trialEndsAt);
+      }
+
+      return (a.trialDaysLeft ?? TRIAL_DAYS) - (b.trialDaysLeft ?? TRIAL_DAYS);
     });
-  }, [data]);
+  }, [data?.data]);
 
-  const stats = useMemo(() => ({
-    trialing: rows.filter((b) => b.subscriptionStatus === 'trialing').length,
-    expiring: rows.filter((b) => b.subscriptionStatus === 'trialing' && (b.trialDaysLeft ?? 0) <= 2).length,
-    expired: rows.filter((b) => b.subscriptionStatus === 'trial_expired').length,
-  }), [rows]);
+  const stats = useMemo(
+    () => ({
+      trialing: rows.filter((row) => row.subscriptionStatus === 'trialing').length,
+      expiring: rows.filter(
+        (row) => row.subscriptionStatus === 'trialing' && (row.trialDaysLeft ?? TRIAL_DAYS) <= 2,
+      ).length,
+      expired: rows.filter((row) => row.subscriptionStatus === 'trial_expired').length,
+    }),
+    [rows],
+  );
 
-  const filtered = useMemo(() => {
-    if (tab === 'trialing') return rows.filter((b) => b.subscriptionStatus === 'trialing');
-    if (tab === 'expiring') return rows.filter((b) => b.subscriptionStatus === 'trialing' && (b.trialDaysLeft ?? 0) <= 2);
-    if (tab === 'expired') return rows.filter((b) => b.subscriptionStatus === 'trial_expired');
+  const filteredRows = useMemo(() => {
+    if (tab === 'trialing') return rows.filter((row) => row.subscriptionStatus === 'trialing');
+    if (tab === 'expiring') {
+      return rows.filter((row) => row.subscriptionStatus === 'trialing' && (row.trialDaysLeft ?? TRIAL_DAYS) <= 2);
+    }
+    if (tab === 'expired') return rows.filter((row) => row.subscriptionStatus === 'trial_expired');
     return rows;
   }, [rows, tab]);
 
@@ -137,7 +220,7 @@ export default function TrialsPage() {
             <h1 className="text-xl font-semibold text-foreground">Dùng thử & gia hạn</h1>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Theo dõi vòng đời dùng thử 10 ngày và ưu tiên các doanh nghiệp cần chăm sóc.
+            Theo dõi doanh nghiệp đang trong 10 ngày dùng thử và ưu tiên xử lý các trường hợp sắp hết hạn.
           </p>
         </div>
         <button
@@ -150,10 +233,28 @@ export default function TrialsPage() {
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="Đang dùng thử" value={stats.trialing} sub={`Trong ${TRIAL_DAYS} ngày dùng thử`} icon={Clock3} tone="bg-sky-500/10 text-sky-700" />
-        <StatCard label="Sắp hết hạn" value={stats.expiring} sub="Còn tối đa 2 ngày" icon={AlertTriangle} tone="bg-orange-500/10 text-orange-700" />
-        <StatCard label="Đã hết hạn" value={stats.expired} sub="Chưa chuyển sang gói trả phí" icon={Building2} tone="bg-red-500/10 text-red-700" />
+      <div className="grid gap-2 md:grid-cols-3">
+        <CompactStat
+          label="Đang dùng thử"
+          value={stats.trialing}
+          description={`Trong thời hạn ${TRIAL_DAYS} ngày`}
+          icon={Clock3}
+          tone="bg-blue-500/10 text-blue-700"
+        />
+        <CompactStat
+          label="Sắp hết hạn"
+          value={stats.expiring}
+          description="Còn tối đa 2 ngày"
+          icon={AlertTriangle}
+          tone="bg-orange-500/10 text-orange-700"
+        />
+        <CompactStat
+          label="Đã hết hạn"
+          value={stats.expired}
+          description="Cần gia hạn hoặc khóa truy cập"
+          icon={Building2}
+          tone="bg-red-500/10 text-red-700"
+        />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -172,23 +273,26 @@ export default function TrialsPage() {
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          {filtered.length} / {data?.meta?.total ?? 0} doanh nghiệp
+          {filteredRows.length} / {rows.length} doanh nghiệp dùng thử
         </p>
       </div>
 
-      {isError && (
+      {isError ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-          Không tải được danh sách dùng thử. Kiểm tra kết nối dịch vụ.
+          Không tải được danh sách dùng thử. Kiểm tra API doanh nghiệp và quyền xem gói dịch vụ.
         </div>
-      )}
+      ) : null}
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[1120px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
               <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Doanh nghiệp</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Cửa hàng</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Ngày tạo</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground min-w-[200px]">Thời hạn trial</th>
+              <th className="min-w-[230px] px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+                Thời hạn dùng thử
+              </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Nhân viên phụ trách</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Trạng thái</th>
               <th className="px-4 py-3" />
@@ -196,54 +300,57 @@ export default function TrialsPage() {
           </thead>
           <tbody className="divide-y divide-border">
             {isLoading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <tr key={i}>
-                  {Array.from({ length: 6 }).map((__, j) => (
-                    <td key={j} className="px-4 py-4">
-                      <div className="h-4 animate-pulse rounded bg-muted" />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            ) : filtered.length === 0 ? (
+              <SkeletonRows />
+            ) : filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-5 py-12 text-center">
+                <td colSpan={7} className="px-5 py-12 text-center">
                   {empty.good ? (
                     <CheckCircle size={34} className="mx-auto mb-2 text-emerald-500" />
                   ) : (
                     <RotateCcw size={34} className="mx-auto mb-2 text-muted-foreground/40" />
                   )}
                   <p className="text-sm font-medium text-foreground">{empty.title}</p>
-                  {empty.sub && <p className="mt-1 text-xs text-muted-foreground">{empty.sub}</p>}
+                  <p className="mt-1 text-xs text-muted-foreground">{empty.description}</p>
                 </td>
               </tr>
             ) : (
-              filtered.map((row) => {
+              filteredRows.map((row) => {
                 const tone = trialTone(row);
-                const pct = progressPct(row);
+                const percentage = trialProgress(row);
+
                 return (
                   <tr key={row.id} className="transition hover:bg-muted/20">
                     <td className="px-5 py-3.5">
-                      <p className="font-medium text-foreground">{row.legalName || row.brandName || '—'}</p>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{row.businessCode}</code>
-                        {row.firstStore && (
-                          <span className="text-xs text-muted-foreground">{row.firstStore.storeName}</span>
-                        )}
-                      </div>
+                      <p className="font-medium text-foreground">{row.legalName}</p>
+                      <code className="mt-1 inline-flex rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {row.businessCode}
+                      </code>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      {row.firstStore ? (
+                        <div className="flex items-center gap-2">
+                          <Store size={15} className="text-muted-foreground" />
+                          <div>
+                            <p className="text-sm font-medium text-foreground">{row.firstStore.storeName}</p>
+                            <code className="text-xs text-muted-foreground">{row.firstStore.storeCode}</code>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Chưa có</span>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-xs text-muted-foreground">
                       {formatDate(row.createdAt)}
                     </td>
                     <td className="px-4 py-3.5">
-                      <div className="mb-1.5 flex items-center gap-2">
+                      <div className="mb-1.5 flex flex-wrap items-center gap-2">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tone.badge}`}>
-                          {daysLabel(row)}
+                          {trialLabel(row)}
                         </span>
-                        <span className="text-xs text-muted-foreground">hết {formatDate(row.trialEndsAt)}</span>
+                        <span className="text-xs text-muted-foreground">hết ngày {formatDate(row.trialEndsAt)}</span>
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                        <div className={`h-full rounded-full transition-all ${tone.bar}`} style={{ width: `${pct}%` }} />
+                        <div className={`h-full rounded-full transition-all ${tone.bar}`} style={{ width: `${percentage}%` }} />
                       </div>
                     </td>
                     <td className="px-4 py-3.5">
@@ -264,15 +371,7 @@ export default function TrialsPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3.5">
-                      {row.subscriptionStatus === 'trial_expired' ? (
-                        <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-700">Hết hạn</span>
-                      ) : (row.trialDaysLeft ?? 0) <= 2 ? (
-                        <span className="rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-700">Sắp hết hạn</span>
-                      ) : (
-                        <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-xs font-medium text-sky-700">Đang dùng thử</span>
-                      )}
-                    </td>
+                    <td className="px-4 py-3.5">{statusBadge(row)}</td>
                     <td className="px-4 py-3.5 text-right">
                       <Link
                         href={`/businesses/${row.id}`}

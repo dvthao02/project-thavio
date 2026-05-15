@@ -140,7 +140,7 @@ function alertHref(alert: PlatformAlert, item: AlertItem) {
   return ALERT_META[alert.type]?.href(item) ?? '#';
 }
 
-function StatCard({
+function CompactStat({
   label,
   value,
   tone,
@@ -152,12 +152,16 @@ function StatCard({
   icon: React.ElementType;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className={`mb-4 flex h-9 w-9 items-center justify-center rounded-md ${tone}`}>
-        <Icon size={17} />
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${tone}`}>
+        <Icon size={16} />
       </div>
-      <p className="text-2xl font-bold text-foreground">{value}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{label}</p>
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <p className="text-lg font-bold leading-none text-foreground">{value}</p>
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -204,11 +208,11 @@ export default function AlertsPage() {
         </button>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
-        <StatCard label="Tổng cảnh báo" value={total} icon={AlertTriangle} tone="bg-primary/10 text-primary" />
-        <StatCard label="Nghiêm trọng" value={data?.totalCritical ?? 0} icon={ShieldAlert} tone="bg-red-500/10 text-red-700" />
-        <StatCard label="Cảnh báo" value={data?.totalWarning ?? 0} icon={Clock3} tone="bg-orange-500/10 text-orange-700" />
-        <StatCard label="Theo dõi" value={data?.totalInfo ?? 0} icon={Info} tone="bg-sky-500/10 text-sky-700" />
+      <div className="grid gap-2 md:grid-cols-4">
+        <CompactStat label="Tổng cảnh báo" value={total} icon={AlertTriangle} tone="bg-primary/10 text-primary" />
+        <CompactStat label="Nghiêm trọng" value={data?.totalCritical ?? 0} icon={ShieldAlert} tone="bg-red-500/10 text-red-700" />
+        <CompactStat label="Cảnh báo" value={data?.totalWarning ?? 0} icon={Clock3} tone="bg-orange-500/10 text-orange-700" />
+        <CompactStat label="Theo dõi" value={data?.totalInfo ?? 0} icon={Info} tone="bg-sky-500/10 text-sky-700" />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">

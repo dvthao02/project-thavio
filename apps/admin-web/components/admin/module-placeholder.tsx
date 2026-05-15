@@ -23,10 +23,10 @@ export function ModulePlaceholder({
         <p className="text-sm text-muted-foreground mt-1">{description}</p>
       </div>
 
-      <div className="bg-card border border-border rounded-lg p-6">
-        <div className="flex items-start gap-4">
-          <div className="w-11 h-11 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-            <Icon size={20} />
+      <div className="bg-card border border-border rounded-lg p-4">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <Icon size={17} />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-foreground">Chức năng đang được thiết kế</p>
@@ -42,7 +42,7 @@ export function ModulePlaceholder({
         </div>
 
         {items.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-4">
             {items.map((item) => (
               <div key={item} className="border border-border rounded-md px-3 py-2 text-sm text-muted-foreground">
                 {item}

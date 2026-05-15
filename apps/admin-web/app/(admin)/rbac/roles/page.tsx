@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Building2, ChevronRight, Loader2, Plus, Search, ShieldCheck, Users, X } from 'lucide-react';
+import { Building2, ChevronRight, Crown, KeyRound, Loader2, Plus, Search, ShieldCheck, Users, X } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface Role {
@@ -45,6 +45,35 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="space-y-1.5">
       <label className="block text-xs font-medium text-muted-foreground">{label}</label>
       {children}
+    </div>
+  );
+}
+
+function CompactStat({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  sub: string;
+  icon: React.ElementType;
+  tone: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${tone}`}>
+        <Icon size={16} />
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <p className="text-lg font-bold leading-none text-foreground">{value}</p>
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+        </div>
+        <p className="mt-1 truncate text-[11px] text-muted-foreground">{sub}</p>
+      </div>
     </div>
   );
 }
@@ -105,6 +134,10 @@ export default function RolesPage() {
   const filtered = scope === 'all' ? roles : roles.filter((r) => r.roleScope === scope);
   const platformCount = roles.filter((r) => r.roleScope === 'platform').length;
   const businessCount = roles.filter((r) => r.roleScope === 'business').length;
+  const systemCount = roles.filter((r) => r.isSystem).length;
+  const customCount = roles.length - systemCount;
+  const permissionBindings = roles.reduce((sum, role) => sum + role.permissionCount, 0);
+  const accountBindings = roles.reduce((sum, role) => sum + role.accountCount, 0);
 
   const visibleModules = (allPermsData?.modules ?? [])
     .map((m) => ({
@@ -161,28 +194,42 @@ export default function RolesPage() {
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <ShieldCheck size={17} />
-          </div>
-          <p className="text-2xl font-bold text-foreground">{roles.length}</p>
-          <p className="mt-1 text-sm text-muted-foreground">Tổng số vai trò</p>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-md bg-violet-500/10 text-violet-700">
-            <ShieldCheck size={17} />
-          </div>
-          <p className="text-2xl font-bold text-foreground">{platformCount}</p>
-          <p className="mt-1 text-sm text-muted-foreground">Vai trò Platform</p>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-md bg-sky-500/10 text-sky-700">
-            <Building2 size={17} />
-          </div>
-          <p className="text-2xl font-bold text-foreground">{businessCount}</p>
-          <p className="mt-1 text-sm text-muted-foreground">Vai trò Business</p>
-        </div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <CompactStat
+          label="Tổng vai trò"
+          value={roles.length}
+          sub={`${platformCount} nền tảng, ${businessCount} cửa hàng`}
+          icon={ShieldCheck}
+          tone="bg-primary/10 text-primary"
+        />
+        <CompactStat
+          label="Vai trò hệ thống"
+          value={systemCount}
+          sub={`${customCount} vai trò tùy chỉnh`}
+          icon={Crown}
+          tone="bg-amber-500/10 text-amber-700"
+        />
+        <CompactStat
+          label="Quyền đã gán"
+          value={permissionBindings}
+          sub="Tổng role-permission"
+          icon={KeyRound}
+          tone="bg-violet-500/10 text-violet-700"
+        />
+        <CompactStat
+          label="Tài khoản dùng role"
+          value={accountBindings}
+          sub="Tổng role binding"
+          icon={Users}
+          tone="bg-emerald-500/10 text-emerald-700"
+        />
+        <CompactStat
+          label="Đang lọc"
+          value={filtered.length}
+          sub={scope === 'all' ? 'Tất cả phạm vi' : scope === 'platform' ? 'Phạm vi platform' : 'Phạm vi business'}
+          icon={Building2}
+          tone="bg-sky-500/10 text-sky-700"
+        />
       </div>
 
       <div className="inline-flex rounded-md border border-border bg-card p-1">

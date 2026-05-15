@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Eye, Lock, LockOpen, Plus, Search, Shield, ShieldCheck, Users, X } from 'lucide-react';
+import { Clock3, Eye, Lock, LockOpen, Plus, Search, Shield, ShieldCheck, UserCheck, Users, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
 
@@ -36,6 +36,35 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="space-y-1.5">
       <label className="block text-xs font-medium text-muted-foreground">{label}</label>
       {children}
+    </div>
+  );
+}
+
+function CompactStat({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  sub: string;
+  icon: React.ElementType;
+  tone: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${tone}`}>
+        <Icon size={16} />
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <p className="text-lg font-bold leading-none text-foreground">{value}</p>
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+        </div>
+        <p className="mt-1 truncate text-[11px] text-muted-foreground">{sub}</p>
+      </div>
     </div>
   );
 }
@@ -76,6 +105,15 @@ export default function AccountsPage() {
     placeholderData: (prev) => prev,
   });
 
+  const { data: summaryData } = useQuery<ListResponse>({
+    queryKey: ['accounts-summary'],
+    queryFn: () =>
+      api.get('/platform/accounts', {
+        params: { page: 1, limit: 100 },
+      }).then((r) => r.data),
+    placeholderData: (prev) => prev,
+  });
+
   const updateStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       api.patch(`/platform/accounts/${id}/status`, { status }),
@@ -93,52 +131,98 @@ export default function AccountsPage() {
   const closeCreate = () => { setCreateOpen(false); setForm(DEFAULT_FORM); };
 
   const total = data?.meta.total ?? 0;
+  const summaryAccounts = summaryData?.data ?? data?.data ?? [];
+  const summaryTotal = summaryData?.meta.total ?? total;
+  const activeCount = summaryAccounts.filter((a) => a.status === 'active').length;
+  const lockedCount = summaryAccounts.filter((a) => a.status === 'locked').length;
+  const disabledCount = summaryAccounts.filter((a) => a.status === 'disabled').length;
+  const adminCount = summaryAccounts.filter((a) => a.isPlatformAdmin).length;
+  const neverLoggedInCount = summaryAccounts.filter((a) => !a.lastLoginAt).length;
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold text-foreground">Tài khoản</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {data ? `${total} tài khoản nền tảng` : 'Quản lý tài khoản nền tảng'}
           </p>
         </div>
-        {canCreate && (
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition"
-          >
-            <Plus size={16} /> Tạo tài khoản
-          </button>
-        )}
+
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+          <div className="relative min-w-[240px] max-w-sm flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Tìm email hoặc tên đăng nhập..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              className="w-full rounded-md border border-input bg-background py-2 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+
+          <div className="inline-flex rounded-md border border-border bg-card p-1">
+            {STATUS_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => { setStatusFilter(f.key); setPage(1); }}
+                className={`rounded px-3 py-1.5 text-xs font-medium transition ${
+                  statusFilter === f.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {canCreate && (
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
+            >
+              <Plus size={16} /> Tạo tài khoản
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative max-w-xs flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Tìm email hoặc tên đăng nhập..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="w-full pl-8 pr-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
-          />
-        </div>
-        <div className="inline-flex rounded-md border border-border bg-card p-1">
-          {STATUS_FILTERS.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => { setStatusFilter(f.key); setPage(1); }}
-              className={`rounded px-3 py-1.5 text-xs font-medium transition ${
-                statusFilter === f.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <CompactStat
+          label="Tổng tài khoản"
+          value={summaryTotal}
+          sub={`${data?.data.length ?? 0} đang hiển thị`}
+          icon={Users}
+          tone="bg-primary/10 text-primary"
+        />
+        <CompactStat
+          label="Hoạt động"
+          value={activeCount}
+          sub={`${lockedCount} tài khoản bị khóa`}
+          icon={UserCheck}
+          tone="bg-emerald-500/10 text-emerald-700"
+        />
+        <CompactStat
+          label="Quản trị nền tảng"
+          value={adminCount}
+          sub="Có quyền platform admin"
+          icon={ShieldCheck}
+          tone="bg-violet-500/10 text-violet-700"
+        />
+        <CompactStat
+          label="Ngừng sử dụng"
+          value={disabledCount}
+          sub="Tài khoản vô hiệu hóa"
+          icon={Lock}
+          tone="bg-red-500/10 text-red-700"
+        />
+        <CompactStat
+          label="Chưa đăng nhập"
+          value={neverLoggedInCount}
+          sub="Cần nhắc kích hoạt"
+          icon={Clock3}
+          tone="bg-amber-500/10 text-amber-700"
+        />
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">

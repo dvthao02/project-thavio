@@ -104,6 +104,16 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const { user, setPermissions } = useAuthStore();
 
   useEffect(() => {
+    const applyResponsiveSidebar = () => {
+      setSidebarCollapsed(window.innerWidth < 1280);
+    };
+
+    applyResponsiveSidebar();
+    window.addEventListener('resize', applyResponsiveSidebar);
+    return () => window.removeEventListener('resize', applyResponsiveSidebar);
+  }, []);
+
+  useEffect(() => {
     api.get('/platform/auth/me')
       .then((r) => setPermissions(r.data.permissions ?? [], r.data.roleNames ?? []))
       .catch(() => undefined);

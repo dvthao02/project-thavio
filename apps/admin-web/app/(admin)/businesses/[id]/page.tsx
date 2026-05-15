@@ -358,7 +358,7 @@ export default function BusinessDetailPage() {
           <ChevronLeft size={20} />
         </Link>
         <div className="flex items-center gap-4 flex-1 min-w-0">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-base font-bold text-primary">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary">
             {initials}
           </div>
           <div className="min-w-0">
@@ -429,8 +429,8 @@ export default function BusinessDetailPage() {
 
       {/* Tab: Thông tin */}
       {tab === 'info' && (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <div className="rounded-lg border border-border bg-card p-5">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-border bg-card p-4">
             <h3 className="text-sm font-semibold text-foreground mb-1">Thông tin pháp lý</h3>
             <InfoRow label="Tên pháp lý" value={business.legalName} />
             <InfoRow label="Tên thương hiệu" value={business.brandName} />
@@ -438,7 +438,7 @@ export default function BusinessDetailPage() {
             <InfoRow label="Email liên hệ" value={business.email} />
             <InfoRow label="Số điện thoại" value={business.phone} />
           </div>
-          <div className="rounded-lg border border-border bg-card p-5">
+          <div className="rounded-lg border border-border bg-card p-4">
             <h3 className="text-sm font-semibold text-foreground mb-1">Cấu hình hệ thống</h3>
             <InfoRow
               label="Mã doanh nghiệp"
@@ -460,7 +460,7 @@ export default function BusinessDetailPage() {
             />
           </div>
           {business.note && (
-            <div className="rounded-lg border border-border bg-card p-5 lg:col-span-2">
+            <div className="rounded-lg border border-border bg-card p-4 lg:col-span-2">
               <h3 className="text-sm font-semibold text-foreground mb-2">Ghi chú</h3>
               <p className="text-sm text-muted-foreground whitespace-pre-wrap">{business.note}</p>
             </div>
@@ -608,8 +608,8 @@ export default function BusinessDetailPage() {
 
       {/* Tab: Gói dịch vụ */}
       {tab === 'subscription' && (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <div className="rounded-lg border border-border bg-card p-5">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-border bg-card p-4">
             <h3 className="text-sm font-semibold text-foreground mb-1">Gói hiện tại</h3>
             <InfoRow
               label="Gói dịch vụ"
@@ -658,7 +658,7 @@ export default function BusinessDetailPage() {
           </div>
 
           {business.subscriptionStatus === 'trialing' && (
-            <div className="rounded-lg border border-sky-200 bg-sky-500/5 p-5">
+            <div className="rounded-lg border border-sky-200 bg-sky-500/5 p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Clock3 size={16} className="text-sky-600" />
                 <h3 className="text-sm font-semibold text-sky-700">Thông tin dùng thử</h3>

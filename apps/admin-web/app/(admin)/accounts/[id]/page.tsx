@@ -222,7 +222,7 @@ export default function AccountDetailPage() {
       </div>
 
       {/* Thông tin */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-4">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-foreground">Thông tin tài khoản</h2>
           <div className="flex gap-2">
@@ -264,7 +264,7 @@ export default function AccountDetailPage() {
       </div>
 
       {/* Vai trò */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-4">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <KeyRound size={16} className="text-muted-foreground" />
@@ -315,7 +315,7 @@ export default function AccountDetailPage() {
 
       {/* Doanh nghiệp phụ trách */}
       {account.businesses.length > 0 && (
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-4">
           <div className="mb-4 flex items-center gap-2">
             <Building2 size={16} className="text-muted-foreground" />
             <h2 className="text-sm font-semibold text-foreground">
