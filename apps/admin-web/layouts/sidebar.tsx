@@ -119,10 +119,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   };
   const isItemActive = (href: string) => {
     const itemPath = hrefPath(href);
-    if (!(pathname === itemPath || pathname.startsWith(`${itemPath}/`))) return false;
+    if (!pathname || !(pathname === itemPath || pathname.startsWith(`${itemPath}/`))) return false;
     const itemScope = hrefScope(href);
     if (!itemScope) return true;
-    return searchParams.get('scope') === itemScope;
+    return searchParams?.get('scope') === itemScope;
   };
 
   return (

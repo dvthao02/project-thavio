@@ -92,7 +92,8 @@ function useEscapeKey(active: boolean, handler: () => void) {
 }
 
 export default function RoleDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams<{ id: string }>();
+  const id = params?.id ?? '';
   const router = useRouter();
   const qc = useQueryClient();
 

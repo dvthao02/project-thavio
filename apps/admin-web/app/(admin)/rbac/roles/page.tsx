@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -117,9 +117,9 @@ const ROLE_PRIORITY: Record<string, number> = {
   'business.cashier': 5,
 };
 
-export default function RolesPage() {
+function RolesPageInner() {
   const searchParams = useSearchParams();
-  const scopeParam = searchParams.get('scope');
+  const scopeParam = searchParams?.get('scope') ?? null;
   const forcedScope = scopeParam === 'platform' || scopeParam === 'business' ? scopeParam : null;
   const [scope, setScope] = useState<'all' | 'platform' | 'business'>(forcedScope ?? 'all');
   const [createOpen, setCreateOpen] = useState(false);
@@ -652,5 +652,13 @@ export default function RolesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function RolesPage() {
+  return (
+    <Suspense>
+      <RolesPageInner />
+    </Suspense>
   );
 }

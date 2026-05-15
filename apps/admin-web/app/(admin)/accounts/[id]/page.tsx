@@ -85,7 +85,8 @@ function useEscape(active: boolean, fn: () => void) {
 }
 
 export default function AccountDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams<{ id: string }>();
+  const id = params?.id ?? '';
   const qc = useQueryClient();
   const { permissions } = useAuthStore();
   const canUpdate = permissions.includes('platform.account.update');

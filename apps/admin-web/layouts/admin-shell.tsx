@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, KeyRound, LogOut, Monitor, Smartphone, UserRound } from 'lucide-react';
@@ -51,7 +51,7 @@ function AccountMenu() {
           </div>
 
           <Link
-            href="/admin/accounts"
+            href="/accounts"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
@@ -59,7 +59,7 @@ function AccountMenu() {
             <span>Thông tin tài khoản</span>
           </Link>
           <Link
-            href="/admin/settings/security"
+            href="/settings/security"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
@@ -67,7 +67,7 @@ function AccountMenu() {
             <span>Đổi mật khẩu</span>
           </Link>
           <Link
-            href="/admin/sessions"
+            href="/sessions"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
@@ -75,7 +75,7 @@ function AccountMenu() {
             <span>Phiên đăng nhập</span>
           </Link>
           <Link
-            href="/admin/security/devices"
+            href="/security/devices"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
@@ -122,7 +122,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar collapsed={sidebarCollapsed} onToggle={handleToggle} />
+      <Suspense fallback={<div className="w-64 shrink-0 h-screen bg-sidebar border-r border-sidebar-border" />}>
+        <Sidebar collapsed={sidebarCollapsed} onToggle={handleToggle} />
+      </Suspense>
       <main className="flex-1 min-w-0 overflow-y-auto">
         <header className="sticky top-0 z-30 flex h-14 items-center justify-end border-b border-border bg-background/95 px-5 backdrop-blur">
           <AccountMenu />
