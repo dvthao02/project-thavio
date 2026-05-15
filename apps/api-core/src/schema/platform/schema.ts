@@ -2,6 +2,7 @@ import { pgTable, pgSchema, unique, uuid, varchar, boolean, timestamp, integer, 
 import { sql } from "drizzle-orm"
 
 export const platform = pgSchema("platform");
+const unknown = (name: string) => text(name);
 
 
 export const bankMasterInPlatform = platform.table("bank_master", {
@@ -215,6 +216,8 @@ export const accountsInPlatform = platform.table("accounts", {
 	googleId: varchar("google_id", { length: 150 }),
 	authProvider: varchar("auth_provider", { length: 20 }).default('local').notNull(),
 }, (table) => [
+	uniqueIndex("accounts_email_unique").using("btree", table.email.asc().nullsLast().op("text_ops")).where(sql`(email IS NOT NULL)`),
+	uniqueIndex("accounts_phone_unique").using("btree", table.phone.asc().nullsLast().op("text_ops")).where(sql`(phone IS NOT NULL)`),
 	uniqueIndex("idx_accounts_google_id").using("btree", table.googleId.asc().nullsLast().op("text_ops")).where(sql`(google_id IS NOT NULL)`),
 	uniqueIndex("idx_accounts_username").using("btree", table.username.asc().nullsLast().op("text_ops")).where(sql`(username IS NOT NULL)`),
 	unique("accounts_username_key").on(table.username),
@@ -863,7 +866,7 @@ export const platformAuditLogInPlatform = platform.table("platform_audit_log", {
 	tableName: varchar("table_name", { length: 80 }).notNull(),
 	operation: varchar({ length: 10 }).notNull(),
 	recordId: uuid("record_id"),
-	changedBy: text("changed_by").default(CURRENT_USER),
+	changedBy: text("changed_by").default(sql`CURRENT_USER`),
 	oldData: jsonb("old_data"),
 	newData: jsonb("new_data"),
 	changedFields: text("changed_fields").array(),

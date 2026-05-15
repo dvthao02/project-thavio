@@ -1,4 +1,4 @@
-import { pgTable, pgSchema, unique, check, uuid, varchar, integer, bigint, timestamp, date, boolean, uniqueIndex, foreignKey, numeric, text, time, index, jsonb, pgPolicy, char, primaryKey } from "drizzle-orm/pg-core"
+import { pgTable, pgSchema, unique, check, uuid, varchar, integer, bigint, timestamp, date, boolean, uniqueIndex, foreignKey, numeric, text, index, jsonb, time, pgPolicy, char, primaryKey } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const businessTemplate = pgSchema("business_template");
@@ -69,6 +69,9 @@ export const staffMembersInBusinessTemplate = businessTemplate.table("staff_memb
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	uniqueIndex("staff_members_email_unique").using("btree", table.email.asc().nullsLast().op("text_ops")).where(sql`(email IS NOT NULL)`),
+	uniqueIndex("staff_members_phone_unique").using("btree", table.phone.asc().nullsLast().op("text_ops")).where(sql`(phone IS NOT NULL)`),
+	uniqueIndex("staff_members_staff_code_unique").using("btree", table.staffCode.asc().nullsLast().op("text_ops")),
 	uniqueIndex("uq_staff_members_staff_code").using("btree", table.staffCode.asc().nullsLast().op("text_ops")),
 	foreignKey({
 			columns: [table.departmentId],
@@ -100,36 +103,6 @@ export const departmentsInBusinessTemplate = businessTemplate.table("departments
 			foreignColumns: [table.id],
 			name: "fk_dept_parent"
 		}),
-]);
-
-export const storesInBusinessTemplate = businessTemplate.table("stores", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	parentId: uuid("parent_id"),
-	storeCode: varchar("store_code", { length: 30 }).notNull(),
-	storeName: varchar("store_name", { length: 255 }).notNull(),
-	storeType: varchar("store_type", { length: 30 }).default('retail').notNull(),
-	phone: varchar({ length: 30 }),
-	email: varchar({ length: 255 }),
-	address: text(),
-	district: varchar({ length: 100 }),
-	city: varchar({ length: 100 }),
-	latitude: numeric({ precision: 10, scale:  7 }),
-	longitude: numeric({ precision: 10, scale:  7 }),
-	timezone: varchar({ length: 50 }).default('Asia/Ho_Chi_Minh').notNull(),
-	openTime: time("open_time"),
-	closeTime: time("close_time"),
-	imageUrl: varchar("image_url", { length: 500 }),
-	isActive: boolean("is_active").default(true).notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	foreignKey({
-			columns: [table.parentId],
-			foreignColumns: [table.id],
-			name: "fk_store_parent"
-		}),
-	unique("stores_store_code_key").on(table.storeCode),
-	check("chk_store_type", sql`(store_type)::text = ANY (ARRAY['retail'::text, 'warehouse'::text, 'office'::text, 'kiosk'::text])`),
 ]);
 
 export const customerGroupsInBusinessTemplate = businessTemplate.table("customer_groups", {
@@ -1110,6 +1083,11 @@ export const cashAccountsInBusinessTemplate = businessTemplate.table("cash_accou
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
+			columns: [table.bankMasterId],
+			foreignColumns: [bankMaster.id],
+			name: "fk_cash_accounts_bank"
+		}),
+	foreignKey({
 			columns: [table.storeId],
 			foreignColumns: [storesInBusinessTemplate.id],
 			name: "fk_cash_accounts_store"
@@ -1225,6 +1203,11 @@ export const deviceBindingsInBusinessTemplate = businessTemplate.table("device_b
 			columns: [table.storeId],
 			foreignColumns: [storesInBusinessTemplate.id],
 			name: "device_bindings_store_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.deviceIdentityId],
+			foreignColumns: [deviceIdentities.id],
+			name: "fk_db_device_identity"
 		}),
 	check("chk_binding_status", sql`(status)::text = ANY (ARRAY['active'::text, 'unbound'::text])`),
 ]);
@@ -1389,6 +1372,11 @@ export const staffAccountLinksInBusinessTemplate = businessTemplate.table("staff
 	unlinkedAt: timestamp("unlinked_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
 	index("idx_staff_account_links_account").using("btree", table.accountId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.accountId],
+			foreignColumns: [accounts.id],
+			name: "staff_account_links_account_id_fkey"
+		}),
 	foreignKey({
 			columns: [table.staffId],
 			foreignColumns: [staffMembersInBusinessTemplate.id],
@@ -4635,6 +4623,36 @@ export const paymentMethodsInBusinessTemplate = businessTemplate.table("payment_
 	check("chk_payment_method_type", sql`(method_type)::text = ANY (ARRAY['cash'::text, 'card'::text, 'qr_code'::text, 'bank_transfer'::text, 'e_wallet'::text, 'loyalty_point'::text, 'credit'::text, 'voucher'::text, 'other'::text])`),
 ]);
 
+export const storesInBusinessTemplate = businessTemplate.table("stores", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	parentId: uuid("parent_id"),
+	storeCode: varchar("store_code", { length: 30 }).notNull(),
+	storeName: varchar("store_name", { length: 255 }).notNull(),
+	storeType: varchar("store_type", { length: 30 }).default('retail').notNull(),
+	phone: varchar({ length: 30 }),
+	email: varchar({ length: 255 }),
+	address: text(),
+	district: varchar({ length: 100 }),
+	city: varchar({ length: 100 }),
+	latitude: numeric({ precision: 10, scale:  7 }),
+	longitude: numeric({ precision: 10, scale:  7 }),
+	timezone: varchar({ length: 50 }).default('Asia/Ho_Chi_Minh').notNull(),
+	openTime: time("open_time"),
+	closeTime: time("close_time"),
+	imageUrl: varchar("image_url", { length: 500 }),
+	isActive: boolean("is_active").default(true).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.parentId],
+			foreignColumns: [table.id],
+			name: "fk_store_parent"
+		}),
+	unique("stores_store_code_key").on(table.storeCode),
+	check("chk_store_type", sql`(store_type)::text = ANY (ARRAY['retail'::text, 'warehouse'::text, 'office'::text, 'kiosk'::text, 'fnb'::text])`),
+]);
+
 export const productTagMappingsInBusinessTemplate = businessTemplate.table("product_tag_mappings", {
 	productId: uuid("product_id").notNull(),
 	tagId: uuid("tag_id").notNull(),
@@ -4688,3 +4706,4 @@ export const productUnitsInBusinessTemplate = businessTemplate.table("product_un
 		}),
 	primaryKey({ columns: [table.productId, table.unitId], name: "product_units_pkey"}),
 ]);
+
