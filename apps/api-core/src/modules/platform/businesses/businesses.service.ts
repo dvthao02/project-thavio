@@ -244,6 +244,8 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         phone: businesses.phone,
         taxCode: businesses.taxCode,
         currencyCode: businesses.currencyCode,
+        website: businesses.website,
+        legalAddress: businesses.legalAddress,
         timezoneName: businesses.timezoneName,
         note: businesses.note,
         subscriptionExpiresAt: businesses.subscriptionExpiresAt,

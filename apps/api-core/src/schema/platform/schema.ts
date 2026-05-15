@@ -126,7 +126,7 @@ export const platformAuditLogInPlatform = platform.table("platform_audit_log", {
 	tableName: varchar("table_name", { length: 80 }).notNull(),
 	operation: varchar({ length: 10 }).notNull(),
 	recordId: uuid("record_id"),
-	changedBy: text("changed_by").default(CURRENT_USER),
+	changedBy: text("changed_by").default(sql`CURRENT_USER`),
 	oldData: jsonb("old_data"),
 	newData: jsonb("new_data"),
 	changedFields: text("changed_fields").array(),
@@ -875,10 +875,7 @@ export const pgStatStatementsInfoInPlatform = platform.view("pg_stat_statements_
 	statsReset: timestamp("stats_reset", { withTimezone: true, mode: 'string' }),
 }).as(sql`SELECT dealloc, stats_reset FROM platform.pg_stat_statements_info() pg_stat_statements_info(dealloc, stats_reset)`);
 
-export const pgStatStatementsInPlatform = platform.view("pg_stat_statements", {	// TODO: failed to parse database type 'oid'
-	userid: unknown("userid"),
-	// TODO: failed to parse database type 'oid'
-	dbid: unknown("dbid"),
+export const pgStatStatementsInPlatform = platform.view("pg_stat_statements", {
 	toplevel: boolean(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	queryid: bigint({ mode: "number" }),
