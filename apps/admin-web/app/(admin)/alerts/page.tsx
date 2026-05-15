@@ -287,8 +287,8 @@ export default function AlertsPage() {
                   </div>
                 </div>
 
-                <div className="mt-4 overflow-hidden rounded-lg border border-border bg-card">
-                  <table className="w-full text-sm">
+                <div className="mt-4 overflow-x-auto overflow-hidden rounded-lg border border-border bg-card">
+                  <table className="w-full min-w-[500px] text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/40">
                         <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Đối tượng</th>
