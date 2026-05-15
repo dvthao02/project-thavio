@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   AlertTriangle, Building2, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3,
-  Edit2, ExternalLink, Eye, EyeOff, Globe2, Lock, LockOpen, Mail, MapPin, Phone, Plus, Search,
+  Edit2, ExternalLink, Eye, EyeOff, Globe2, Lock, LockOpen, Mail, MapPin, Phone, Plus, RotateCcw, Search,
   Store, Trash2, User, UserCheck, Users, X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -35,6 +35,7 @@ interface BusinessDetail {
   subscriptionExpiresAt: string | null;
   trialStartedAt: string | null;
   trialEndsAt: string | null;
+  trialExtendedAt: string | null;
   trialDaysLeft: number | null;
   subscription: {
     planCode: string | null;
@@ -207,6 +208,7 @@ export default function BusinessDetailPage() {
   const [tab, setTab] = useState<'info' | 'stores' | 'subscription' | 'assignees'>('info');
   const [editOpen, setEditOpen] = useState(false);
   const [suspendConfirm, setSuspendConfirm] = useState<'suspend' | 'activate' | null>(null);
+  const [extendTrialDays, setExtendTrialDays] = useState(7);
   const [addAssigneeOpen, setAddAssigneeOpen] = useState(false);
   const [assigneeSearch, setAssigneeSearch] = useState('');
   const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set());
@@ -293,6 +295,15 @@ export default function BusinessDetailPage() {
     mutationFn: (accountId: string) =>
       api.delete(`/platform/businesses/${id}/assignees/${accountId}`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business-assignees', id] }),
+  });
+
+  const extendTrialMut = useMutation({
+    mutationFn: (days: number) =>
+      api.post(`/platform/businesses/${id}/trial/extend`, { days }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['business', id] });
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+    },
   });
 
   const createStaffMut = useMutation({
@@ -686,11 +697,34 @@ export default function BusinessDetailPage() {
             )}
           </div>
 
-          {business.subscriptionStatus === 'trialing' && (
+          {(business.subscriptionStatus === 'trialing' || business.trialExtendedAt) && (
             <div className="rounded-lg border border-sky-200 bg-sky-500/5 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Clock3 size={16} className="text-sky-600" />
-                <h3 className="text-sm font-semibold text-sky-700">Thông tin dùng thử</h3>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Clock3 size={16} className="text-sky-600" />
+                  <h3 className="text-sm font-semibold text-sky-700">Dùng thử</h3>
+                </div>
+                {canUpdate && (
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={extendTrialDays}
+                      onChange={(e) => setExtendTrialDays(Number(e.target.value))}
+                      className="h-8 rounded-md border border-sky-200 bg-white px-2 text-xs text-sky-800 focus:outline-none"
+                    >
+                      {[3, 5, 7, 10, 14, 30].map((d) => (
+                        <option key={d} value={d}>+{d} ngày</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => extendTrialMut.mutate(extendTrialDays)}
+                      disabled={extendTrialMut.isPending}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-60 transition"
+                    >
+                      <RotateCcw size={12} className={extendTrialMut.isPending ? 'animate-spin' : ''} />
+                      Gia hạn
+                    </button>
+                  </div>
+                )}
               </div>
               <InfoRow
                 label="Bắt đầu dùng thử"
@@ -704,6 +738,11 @@ export default function BusinessDetailPage() {
                   ? new Date(business.trialEndsAt).toLocaleDateString('vi-VN')
                   : null}
               />
+              {business.trialExtendedAt && (
+                <InfoRow label="Đã gia hạn tới" value={
+                  <span className="text-sky-700 font-medium">{new Date(business.trialExtendedAt).toLocaleDateString('vi-VN')}</span>
+                } />
+              )}
               <InfoRow
                 label="Còn lại"
                 value={
@@ -721,6 +760,11 @@ export default function BusinessDetailPage() {
                   ) : null
                 }
               />
+              {extendTrialMut.isError && (
+                <p className="mt-2 text-xs text-destructive">
+                  {(extendTrialMut.error as any)?.response?.data?.message ?? 'Lỗi khi gia hạn.'}
+                </p>
+              )}
             </div>
           )}
         </div>

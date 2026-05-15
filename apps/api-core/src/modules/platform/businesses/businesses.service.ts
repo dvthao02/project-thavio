@@ -30,6 +30,7 @@ function deriveSubscriptionStatus(
   createdAt: string | null,
   subStatus: string | null,
   periodEnd: string | null,
+  trialEndsAt?: string | null,
 ): string {
   if (businessStatus === 'suspended') return 'suspended';
   if (businessStatus === 'inactive') return 'cancelled';
@@ -42,10 +43,15 @@ function deriveSubscriptionStatus(
   // DB status='active' — check if expired first
   if (periodEnd && new Date(periodEnd) < new Date()) return 'past_due';
 
-  // Within trial window?
-  const msPerDay = 86_400_000;
-  const age = createdAt ? (Date.now() - new Date(createdAt).getTime()) / msPerDay : Infinity;
-  return age <= TRIAL_DAYS ? 'trialing' : 'active';
+  // Within trial window? Use explicit override if set, else fall back to createdAt + TRIAL_DAYS
+  const trialDeadline = trialEndsAt
+    ? new Date(trialEndsAt)
+    : createdAt
+    ? new Date(new Date(createdAt).getTime() + TRIAL_DAYS * 86_400_000)
+    : null;
+  if (trialDeadline && trialDeadline > new Date()) return 'trialing';
+
+  return 'active';
 }
 
 @Injectable()
@@ -118,6 +124,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
           phone: businesses.phone,
           timezoneName: businesses.timezoneName,
           createdAt: businesses.createdAt,
+          trialEndsAt: businesses.trialEndsAt,
           _subStatus: businessSubscriptions.status,
           _subPeriodEnd: businessSubscriptions.currentPeriodEnd,
         })
@@ -146,20 +153,20 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     ]);
 
     const data = rows.map(({ _subStatus, _subPeriodEnd, ...row }) => {
-      const subscriptionStatus = deriveSubscriptionStatus(row.status, row.createdAt, _subStatus, _subPeriodEnd);
-      const trialEndsAt = row.createdAt
-        ? new Date(new Date(row.createdAt).getTime() + TRIAL_DAYS * 86_400_000).toISOString()
-        : null;
+      const subscriptionStatus = deriveSubscriptionStatus(row.status, row.createdAt, _subStatus, _subPeriodEnd, row.trialEndsAt);
+      const resolvedTrialEndsAt =
+        row.trialEndsAt ??
+        (row.createdAt ? new Date(new Date(row.createdAt).getTime() + TRIAL_DAYS * 86_400_000).toISOString() : null);
       const trialDaysLeft =
-        subscriptionStatus === 'trialing' && trialEndsAt
-          ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86_400_000))
+        subscriptionStatus === 'trialing' && resolvedTrialEndsAt
+          ? Math.max(0, Math.ceil((new Date(resolvedTrialEndsAt).getTime() - Date.now()) / 86_400_000))
           : null;
 
       return {
         ...row,
         subscriptionStatus,
         trialStartedAt: row.createdAt,
-        trialEndsAt,
+        trialEndsAt: resolvedTrialEndsAt,
         trialDaysLeft,
         assignedAccount: assignedAccountMap.get(row.id) ?? null,
         firstStore: firstStoreMap.get(row.id) ?? null,
@@ -259,6 +266,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         timezoneName: businesses.timezoneName,
         note: businesses.note,
         subscriptionExpiresAt: businesses.subscriptionExpiresAt,
+        trialEndsAt: businesses.trialEndsAt,
         createdAt: businesses.createdAt,
         updatedAt: businesses.updatedAt,
         _subStatus: businessSubscriptions.status,
@@ -274,20 +282,21 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     if (!business) throw new NotFoundException('Business not found');
 
     const { _subStatus, _subPeriodStart, _subPeriodEnd, _subRenewedAt, ...row } = business;
-    const subscriptionStatus = deriveSubscriptionStatus(row.status, row.createdAt, _subStatus, _subPeriodEnd);
-    const trialEndsAt = row.createdAt
-      ? new Date(new Date(row.createdAt).getTime() + TRIAL_DAYS * 86_400_000).toISOString()
-      : null;
+    const subscriptionStatus = deriveSubscriptionStatus(row.status, row.createdAt, _subStatus, _subPeriodEnd, row.trialEndsAt);
+    const resolvedTrialEndsAt =
+      row.trialEndsAt ??
+      (row.createdAt ? new Date(new Date(row.createdAt).getTime() + TRIAL_DAYS * 86_400_000).toISOString() : null);
     const trialDaysLeft =
-      subscriptionStatus === 'trialing' && trialEndsAt
-        ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86_400_000))
+      subscriptionStatus === 'trialing' && resolvedTrialEndsAt
+        ? Math.max(0, Math.ceil((new Date(resolvedTrialEndsAt).getTime() - Date.now()) / 86_400_000))
         : null;
 
     return {
       ...row,
       subscriptionStatus,
       trialStartedAt: row.createdAt,
-      trialEndsAt,
+      trialEndsAt: resolvedTrialEndsAt,
+      trialExtendedAt: row.trialEndsAt,
       trialDaysLeft,
       subscription: _subPeriodEnd
         ? {
@@ -437,6 +446,35 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
 
     const doUpdate = (db: typeof this.platformDb.db) =>
       db.update(businesses).set(patch).where(eq(businesses.id, id));
+
+    if (actorId) {
+      await this.platformDb.runWithActor(actorId, doUpdate);
+    } else {
+      await doUpdate(this.platformDb.db);
+    }
+
+    return this.getOne(id);
+  }
+
+  async extendTrial(id: string, extraDays: number, actorId?: string) {
+    const [business] = await this.platformDb.db
+      .select({ id: businesses.id, createdAt: businesses.createdAt, trialEndsAt: businesses.trialEndsAt })
+      .from(businesses)
+      .where(eq(businesses.id, id))
+      .limit(1);
+    if (!business) throw new NotFoundException('Business not found');
+
+    const baseDate = business.trialEndsAt
+      ? new Date(business.trialEndsAt)
+      : new Date(new Date(business.createdAt!).getTime() + TRIAL_DAYS * 86_400_000);
+
+    if (baseDate < new Date()) baseDate.setTime(Date.now());
+    baseDate.setDate(baseDate.getDate() + extraDays);
+
+    const newTrialEndsAt = baseDate.toISOString();
+
+    const doUpdate = (db: typeof this.platformDb.db) =>
+      db.update(businesses).set({ trialEndsAt: newTrialEndsAt, updatedAt: new Date().toISOString() }).where(eq(businesses.id, id));
 
     if (actorId) {
       await this.platformDb.runWithActor(actorId, doUpdate);

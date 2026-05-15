@@ -1,4 +1,4 @@
-import { pgTable, pgSchema, unique, uuid, varchar, boolean, timestamp, integer, check, text, foreignKey, bigint, char, index, jsonb, smallint, uniqueIndex, numeric, date, serial, doublePrecision } from "drizzle-orm/pg-core"
+import { pgTable, pgSchema, unique, uuid, varchar, boolean, timestamp, integer, check, text, foreignKey, bigint, char, index, smallint, uniqueIndex, numeric, date, jsonb, serial, doublePrecision } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const platform = pgSchema("platform");
@@ -105,34 +105,6 @@ export const subscriptionPlansInPlatform = platform.table("subscription_plans", 
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	unique("subscription_plans_plan_code_key").on(table.planCode),
-]);
-
-export const auditEventsInPlatform = platform.table("audit_events", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	businessId: uuid("business_id"),
-	accountId: uuid("account_id"),
-	eventType: varchar("event_type", { length: 50 }).notNull(),
-	objectType: varchar("object_type", { length: 50 }).notNull(),
-	objectId: varchar("object_id", { length: 100 }),
-	eventPayload: jsonb("event_payload").default({}).notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("idx_audit_events_business").using("btree", table.businessId.asc().nullsLast().op("timestamptz_ops"), table.createdAt.desc().nullsFirst().op("timestamptz_ops")),
-]);
-
-export const platformAuditLogInPlatform = platform.table("platform_audit_log", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	eventTime: timestamp("event_time", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	tableName: varchar("table_name", { length: 80 }).notNull(),
-	operation: varchar({ length: 10 }).notNull(),
-	recordId: uuid("record_id"),
-	changedBy: text("changed_by").default(sql`CURRENT_USER`),
-	oldData: jsonb("old_data"),
-	newData: jsonb("new_data"),
-	changedFields: text("changed_fields").array(),
-}, (table) => [
-	index("idx_pal_event_time").using("btree", table.eventTime.desc().nullsFirst().op("timestamptz_ops")),
-	index("idx_pal_table_record").using("btree", table.tableName.asc().nullsLast().op("text_ops"), table.recordId.asc().nullsLast().op("timestamptz_ops"), table.eventTime.desc().nullsFirst().op("text_ops")),
 ]);
 
 export const webhookSubscriptionsInPlatform = platform.table("webhook_subscriptions", {
@@ -855,6 +827,7 @@ export const businessesInPlatform = platform.table("businesses", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow(),
 	website: varchar({ length: 500 }),
 	legalAddress: text("legal_address"),
+	trialEndsAt: timestamp("trial_ends_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
 	unique("businesses_business_code_key").on(table.businessCode),
 	unique("businesses_schema_name_key").on(table.schemaName),
@@ -870,12 +843,43 @@ export const businessesInPlatform = platform.table("businesses", {
 	check("chk_businesses_email_format", sql`(email)::text ~* '^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$'::text`),
 	check("chk_businesses_status", sql`(status)::text = ANY ((ARRAY['active'::character varying, 'inactive'::character varying, 'suspended'::character varying, 'pending'::character varying])::text[])`),
 ]);
+
+export const auditEventsInPlatform = platform.table("audit_events", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	businessId: uuid("business_id"),
+	accountId: uuid("account_id"),
+	eventType: varchar("event_type", { length: 50 }).notNull(),
+	objectType: varchar("object_type", { length: 50 }).notNull(),
+	objectId: varchar("object_id", { length: 100 }),
+	eventPayload: jsonb("event_payload").default({}).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_audit_events_business").using("btree", table.businessId.asc().nullsLast().op("timestamptz_ops"), table.createdAt.desc().nullsFirst().op("timestamptz_ops")),
+]);
+
+export const platformAuditLogInPlatform = platform.table("platform_audit_log", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	eventTime: timestamp("event_time", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	tableName: varchar("table_name", { length: 80 }).notNull(),
+	operation: varchar({ length: 10 }).notNull(),
+	recordId: uuid("record_id"),
+	changedBy: text("changed_by").default(CURRENT_USER),
+	oldData: jsonb("old_data"),
+	newData: jsonb("new_data"),
+	changedFields: text("changed_fields").array(),
+}, (table) => [
+	index("idx_pal_event_time").using("btree", table.eventTime.desc().nullsFirst().op("timestamptz_ops")),
+	index("idx_pal_table_record").using("btree", table.tableName.asc().nullsLast().op("text_ops"), table.recordId.asc().nullsLast().op("timestamptz_ops"), table.eventTime.desc().nullsFirst().op("text_ops")),
+]);
 export const pgStatStatementsInfoInPlatform = platform.view("pg_stat_statements_info", {	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	dealloc: bigint({ mode: "number" }),
 	statsReset: timestamp("stats_reset", { withTimezone: true, mode: 'string' }),
 }).as(sql`SELECT dealloc, stats_reset FROM platform.pg_stat_statements_info() pg_stat_statements_info(dealloc, stats_reset)`);
 
-export const pgStatStatementsInPlatform = platform.view("pg_stat_statements", {
+export const pgStatStatementsInPlatform = platform.view("pg_stat_statements", {	// TODO: failed to parse database type 'oid'
+	userid: unknown("userid"),
+	// TODO: failed to parse database type 'oid'
+	dbid: unknown("dbid"),
 	toplevel: boolean(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	queryid: bigint({ mode: "number" }),

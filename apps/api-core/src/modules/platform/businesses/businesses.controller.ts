@@ -7,6 +7,7 @@ import { UpdateStatusSchema } from './dto/update-status.dto';
 import { UpdateBusinessSchema } from './dto/update-business.dto';
 import { AddAssigneeSchema } from './dto/manage-assignee.dto';
 import { CreateStaffSchema } from './dto/create-staff.dto';
+import { ExtendTrialSchema } from './dto/extend-trial.dto';
 import { RequirePermission } from '@decorators/require-permission.decorator';
 
 @Controller('platform/businesses')
@@ -63,6 +64,13 @@ export class BusinessesController {
   updateStatus(@Param('id') id: string, @Body() body: unknown, @Req() req: Request & { platformUser?: any }) {
     const dto = UpdateStatusSchema.parse(body);
     return this.businessesService.updateStatus(id, dto, req.platformUser?.sub);
+  }
+
+  @RequirePermission('platform.business.update')
+  @Post(':id/trial/extend')
+  extendTrial(@Param('id') id: string, @Body() body: unknown, @Req() req: Request & { platformUser?: any }) {
+    const { days } = ExtendTrialSchema.parse(body);
+    return this.businessesService.extendTrial(id, days, req.platformUser?.sub);
   }
 
   @RequirePermission('platform.business.update')
