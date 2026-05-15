@@ -485,8 +485,11 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
           schemaName,
           legalName: dto.legalName,
           brandName: dto.brandName ?? dto.legalName,
-          email: dto.email,
-          phone: dto.phone,
+          email: dto.email ?? null,
+          phone: dto.phone ?? null,
+          taxCode: dto.taxCode ?? null,
+          currencyCode: dto.currencyCode ?? 'VND',
+          note: dto.note ?? null,
           subscriptionPlan: dto.plan ?? 'standard',
           timezoneName: dto.timezone ?? 'Asia/Ho_Chi_Minh',
           status: 'active',
@@ -547,11 +550,13 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
 
       // Step 8: Create first store
       const { rows: storeRows } = await bizPool.query<{ id: string }>(
-        `INSERT INTO stores (store_code, store_name, store_type, address, city)
-         VALUES ($1, $2, 'retail', $3, $4) RETURNING id`,
+        `INSERT INTO stores (store_code, store_name, store_type, phone, email, address, city)
+         VALUES ($1, $2, 'retail', $3, $4, $5, $6) RETURNING id`,
         [
           dto.firstStore.storeCode ?? 'STORE001',
           dto.firstStore.storeName,
+          dto.firstStore.phone ?? null,
+          dto.firstStore.email ?? null,
           dto.firstStore.address ?? null,
           dto.firstStore.city ?? null,
         ],

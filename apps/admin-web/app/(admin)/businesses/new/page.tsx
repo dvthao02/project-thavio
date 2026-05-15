@@ -165,6 +165,7 @@ export default function NewBusinessPage() {
   const topRef = useRef<HTMLDivElement>(null);
   const { permissions } = useAuthStore();
   const canCreate = permissions.includes('platform.business.create');
+  const [mounted, setMounted] = useState(false);
 
   const [step, setStep] = useState<Step>(1);
   const [biz, setBiz] = useState(DEFAULT_BIZ);
@@ -175,9 +176,11 @@ export default function NewBusinessPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  useEffect(() => { setMounted(true); }, []);
+
   useEffect(() => {
-    if (!canCreate) router.replace('/businesses');
-  }, [canCreate, router]);
+    if (mounted && !canCreate) router.replace('/businesses');
+  }, [mounted, canCreate, router]);
 
   useEffect(() => {
     if (!slugEdited && biz.legalName) {
@@ -250,7 +253,7 @@ export default function NewBusinessPage() {
     });
   }
 
-  if (!canCreate) return null;
+  if (!mounted || !canCreate) return null;
 
   if (mutation.isPending) {
     return (
@@ -479,7 +482,7 @@ export default function NewBusinessPage() {
           </Field>
 
           <p className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            Một số trường bổ sung cần backend mở rộng DTO để lưu chính thức.
+            Website và địa chỉ pháp lý chưa được lưu — cần bổ sung cột vào bảng <code>platform.businesses</code>.
           </p>
         </div>
         </div>
