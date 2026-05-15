@@ -481,9 +481,6 @@ export default function NewBusinessPage() {
             />
           </Field>
 
-          <p className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            Website và địa chỉ pháp lý chưa được lưu — cần bổ sung cột vào bảng <code>platform.businesses</code>.
-          </p>
         </div>
         </div>
       ) : null}

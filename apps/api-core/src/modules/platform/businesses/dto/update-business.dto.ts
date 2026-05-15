@@ -7,6 +7,8 @@ export const UpdateBusinessSchema = z.object({
   phone: z.string().optional(),
   taxCode: z.string().optional(),
   currencyCode: z.string().optional(),
+  website: z.string().url().optional(),
+  legalAddress: z.string().optional(),
   timezoneName: z.string().optional(),
   note: z.string().optional(),
 });

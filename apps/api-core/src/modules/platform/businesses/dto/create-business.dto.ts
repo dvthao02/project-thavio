@@ -8,6 +8,8 @@ export const CreateBusinessSchema = z.object({
   phone: z.string().optional(),
   taxCode: z.string().optional(),
   currencyCode: z.string().length(3).optional(),
+  website: z.string().url().optional(),
+  legalAddress: z.string().optional(),
   note: z.string().optional(),
   timezone: z.string().optional(),
   plan: z.enum(['starter', 'standard', 'professional', 'enterprise']).optional().default('standard'),

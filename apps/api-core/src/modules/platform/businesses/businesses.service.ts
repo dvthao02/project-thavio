@@ -418,6 +418,8 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     if (dto.phone !== undefined) patch.phone = dto.phone;
     if (dto.taxCode !== undefined) patch.taxCode = dto.taxCode;
     if (dto.currencyCode !== undefined) patch.currencyCode = dto.currencyCode;
+    if (dto.website !== undefined) patch.website = dto.website;
+    if (dto.legalAddress !== undefined) patch.legalAddress = dto.legalAddress;
     if (dto.timezoneName !== undefined) patch.timezoneName = dto.timezoneName;
     if (dto.note !== undefined) patch.note = dto.note;
 
@@ -489,6 +491,8 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
           phone: dto.phone ?? null,
           taxCode: dto.taxCode ?? null,
           currencyCode: dto.currencyCode ?? 'VND',
+          website: dto.website ?? null,
+          legalAddress: dto.legalAddress ?? null,
           note: dto.note ?? null,
           subscriptionPlan: dto.plan ?? 'standard',
           timezoneName: dto.timezone ?? 'Asia/Ho_Chi_Minh',

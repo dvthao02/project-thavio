@@ -126,7 +126,7 @@ export const platformAuditLogInPlatform = platform.table("platform_audit_log", {
 	tableName: varchar("table_name", { length: 80 }).notNull(),
 	operation: varchar({ length: 10 }).notNull(),
 	recordId: uuid("record_id"),
-	changedBy: text("changed_by").$defaultFn(() => 'system'),
+	changedBy: text("changed_by").default(CURRENT_USER),
 	oldData: jsonb("old_data"),
 	newData: jsonb("new_data"),
 	changedFields: text("changed_fields").array(),
@@ -738,40 +738,6 @@ export const businessUsageDailyInPlatform = platform.table("business_usage_daily
 	check("business_usage_daily_usage_value_not_null", sql`usage_value IS NOT NULL`),
 ]);
 
-export const businessesInPlatform = platform.table("businesses", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	businessCode: varchar("business_code", { length: 50 }),
-	schemaName: varchar("schema_name", { length: 63 }),
-	legalName: varchar("legal_name", { length: 255 }),
-	brandName: varchar("brand_name", { length: 255 }),
-	subscriptionPlan: varchar("subscription_plan", { length: 50 }).default('standard'),
-	status: varchar({ length: 20 }).default('active'),
-	timezoneName: varchar("timezone_name", { length: 100 }).default('Asia/Ho_Chi_Minh'),
-	currencyCode: char("currency_code", { length: 3 }).default('VND'),
-	phone: varchar({ length: 30 }),
-	email: varchar({ length: 255 }),
-	taxCode: varchar("tax_code", { length: 50 }),
-	note: text(),
-	storePublicCode: varchar("store_public_code", { length: 12 }),
-	subscriptionExpiresAt: timestamp("subscription_expires_at", { withTimezone: true, mode: 'string' }),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow(),
-}, (table) => [
-	unique("businesses_business_code_key").on(table.businessCode),
-	unique("businesses_schema_name_key").on(table.schemaName),
-	check("businesses_business_code_not_null", sql`business_code IS NOT NULL`),
-	check("businesses_created_at_not_null", sql`created_at IS NOT NULL`),
-	check("businesses_currency_code_not_null", sql`currency_code IS NOT NULL`),
-	check("businesses_legal_name_not_null", sql`legal_name IS NOT NULL`),
-	check("businesses_schema_name_not_null", sql`schema_name IS NOT NULL`),
-	check("businesses_status_not_null", sql`status IS NOT NULL`),
-	check("businesses_subscription_plan_not_null", sql`subscription_plan IS NOT NULL`),
-	check("businesses_timezone_name_not_null", sql`timezone_name IS NOT NULL`),
-	check("businesses_updated_at_not_null", sql`updated_at IS NOT NULL`),
-	check("chk_businesses_email_format", sql`(email)::text ~* '^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$'::text`),
-	check("chk_businesses_status", sql`(status)::text = ANY ((ARRAY['active'::character varying, 'inactive'::character varying, 'suspended'::character varying, 'pending'::character varying])::text[])`),
-]);
-
 export const platformInvoicesInPlatform = platform.table("platform_invoices", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	businessId: uuid("business_id"),
@@ -868,15 +834,51 @@ export const accountRoleBindingsInPlatform = platform.table("account_role_bindin
 		}),
 	check("chk_arb_scope", sql`(scope_type)::text = ANY (ARRAY['platform'::text, 'business'::text, 'store'::text])`),
 ]);
+
+export const businessesInPlatform = platform.table("businesses", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	businessCode: varchar("business_code", { length: 50 }),
+	schemaName: varchar("schema_name", { length: 63 }),
+	legalName: varchar("legal_name", { length: 255 }),
+	brandName: varchar("brand_name", { length: 255 }),
+	subscriptionPlan: varchar("subscription_plan", { length: 50 }).default('standard'),
+	status: varchar({ length: 20 }).default('active'),
+	timezoneName: varchar("timezone_name", { length: 100 }).default('Asia/Ho_Chi_Minh'),
+	currencyCode: char("currency_code", { length: 3 }).default('VND'),
+	phone: varchar({ length: 30 }),
+	email: varchar({ length: 255 }),
+	taxCode: varchar("tax_code", { length: 50 }),
+	note: text(),
+	storePublicCode: varchar("store_public_code", { length: 12 }),
+	subscriptionExpiresAt: timestamp("subscription_expires_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow(),
+	website: varchar({ length: 500 }),
+	legalAddress: text("legal_address"),
+}, (table) => [
+	unique("businesses_business_code_key").on(table.businessCode),
+	unique("businesses_schema_name_key").on(table.schemaName),
+	check("businesses_business_code_not_null", sql`business_code IS NOT NULL`),
+	check("businesses_created_at_not_null", sql`created_at IS NOT NULL`),
+	check("businesses_currency_code_not_null", sql`currency_code IS NOT NULL`),
+	check("businesses_legal_name_not_null", sql`legal_name IS NOT NULL`),
+	check("businesses_schema_name_not_null", sql`schema_name IS NOT NULL`),
+	check("businesses_status_not_null", sql`status IS NOT NULL`),
+	check("businesses_subscription_plan_not_null", sql`subscription_plan IS NOT NULL`),
+	check("businesses_timezone_name_not_null", sql`timezone_name IS NOT NULL`),
+	check("businesses_updated_at_not_null", sql`updated_at IS NOT NULL`),
+	check("chk_businesses_email_format", sql`(email)::text ~* '^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$'::text`),
+	check("chk_businesses_status", sql`(status)::text = ANY ((ARRAY['active'::character varying, 'inactive'::character varying, 'suspended'::character varying, 'pending'::character varying])::text[])`),
+]);
 export const pgStatStatementsInfoInPlatform = platform.view("pg_stat_statements_info", {	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	dealloc: bigint({ mode: "number" }),
 	statsReset: timestamp("stats_reset", { withTimezone: true, mode: 'string' }),
 }).as(sql`SELECT dealloc, stats_reset FROM platform.pg_stat_statements_info() pg_stat_statements_info(dealloc, stats_reset)`);
 
 export const pgStatStatementsInPlatform = platform.view("pg_stat_statements", {	// TODO: failed to parse database type 'oid'
-	userid: text("userid"),
-	// oid type mapped to text
-	dbid: text("dbid"),
+	userid: unknown("userid"),
+	// TODO: failed to parse database type 'oid'
+	dbid: unknown("dbid"),
 	toplevel: boolean(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	queryid: bigint({ mode: "number" }),
