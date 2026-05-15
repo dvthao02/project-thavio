@@ -43,3 +43,11 @@ coverage/
 # Uploads
 uploads/
 public/uploads/
+
+# Playwright MCP
+.playwright-mcp/
+*.png
+
+# Claude Code
+.claude/test-results.log
+.claude/settings.local.json
