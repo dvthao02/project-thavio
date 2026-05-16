@@ -10,8 +10,8 @@ import {
 import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Pool } from 'pg';
-import { eq, ilike, or, count, desc, and, inArray, type SQL } from 'drizzle-orm';
+import { Pool, type PoolClient } from 'pg';
+import { eq, ilike, or, count, desc, and, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { BusinessDbService } from '@common/database/business-db.service';
 import { businesses, businessSubscriptions, accountBusinesses, accounts } from '@schema/platform';
@@ -21,9 +21,93 @@ import type { ListBusinessesDto } from './dto/list-businesses.dto';
 import type { UpdateStatusDto } from './dto/update-status.dto';
 import type { UpdateBusinessDto } from './dto/update-business.dto';
 import type { AddAssigneeDto } from './dto/manage-assignee.dto';
-import type { CreateStaffDto } from './dto/create-staff.dto';
+import type { CreateStaffDto, StaffRoleValue } from './dto/create-staff.dto';
+import type { UpdateStaffDto } from './dto/update-staff.dto';
+import type { CreateStoreDto } from './dto/create-store.dto';
 
 const TRIAL_DAYS = 10;
+const FIRST_STORE_QUERY_CONCURRENCY = 5;
+const STAFF_ROLE_KEY_MAP: Record<string, string> = {
+  owner: 'OWNER',
+  admin: 'ADMIN',
+  cashier: 'CASHIER',
+  inventory: 'INVENTORY',
+  kitchen: 'KITCHEN',
+  delivery: 'DELIVERY',
+  staff: 'STAFF',
+};
+
+type StaffStoreRole = {
+  storeId: string;
+  role: string;
+};
+
+type Queryable = Pool | PoolClient;
+
+type BusinessIdentityFields = {
+  email?: string | null;
+  phone?: string | null;
+  taxCode?: string | null;
+};
+
+type StaffLoginFields = {
+  email?: string | null;
+  phone?: string | null;
+  username?: string | null;
+};
+
+type PgError = Error & {
+  code?: string;
+  constraint?: string;
+};
+
+function normalizeBusinessEmail(value?: string | null): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.toLowerCase() : null;
+}
+
+function normalizeBusinessPhone(value?: string | null): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const normalized = value.trim().replace(/[\s.-]/g, '');
+  return normalized ? normalized : null;
+}
+
+function normalizeBusinessTaxCode(value?: string | null): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const normalized = value.trim().toUpperCase();
+  return normalized ? normalized : null;
+}
+
+function normalizeBusinessIdentity(fields: BusinessIdentityFields): BusinessIdentityFields {
+  return {
+    email: normalizeBusinessEmail(fields.email),
+    phone: normalizeBusinessPhone(fields.phone),
+    taxCode: normalizeBusinessTaxCode(fields.taxCode),
+  };
+}
+
+function normalizeLoginEmail(value?: string | null): string | null | undefined {
+  return normalizeBusinessEmail(value);
+}
+
+function normalizeLoginPhone(value?: string | null): string | null | undefined {
+  return normalizeBusinessPhone(value);
+}
+
+function normalizeUsername(value?: string | null): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
+
+function quoteIdentifier(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
 
 function deriveSubscriptionStatus(
   businessStatus: string | null,
@@ -63,6 +147,155 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     private readonly businessDb: BusinessDbService,
   ) {}
 
+  private async assertBusinessIdentityUnique(fields: BusinessIdentityFields, excludeBusinessId?: string) {
+    const filters: SQL[] = [];
+
+    if (fields.taxCode) {
+      filters.push(sql`LOWER(${businesses.taxCode}) = ${fields.taxCode.toLowerCase()}`);
+    }
+    if (filters.length === 0) return;
+
+    const identityWhere = filters.length === 1 ? filters[0] : (or(...filters) as SQL);
+    const whereClause = excludeBusinessId ? and(identityWhere, ne(businesses.id, excludeBusinessId)) : identityWhere;
+
+    const [duplicate] = await this.platformDb.db
+      .select({
+        email: businesses.email,
+        phone: businesses.phone,
+        taxCode: businesses.taxCode,
+      })
+      .from(businesses)
+      .where(whereClause)
+      .limit(1);
+
+    if (!duplicate) return;
+
+    if (fields.taxCode && duplicate.taxCode?.toLowerCase() === fields.taxCode.toLowerCase()) {
+      throw new ConflictException('Mã số thuế doanh nghiệp đã tồn tại');
+    }
+    throw new ConflictException('Thông tin định danh doanh nghiệp đã tồn tại');
+  }
+
+  private mapBusinessIdentityConflict(err: unknown): ConflictException | null {
+    const pgError = err as PgError;
+    if (pgError?.code !== '23505') return null;
+
+    const constraint = pgError.constraint ?? '';
+    if (constraint.includes('businesses_tax_code')) {
+      return new ConflictException('Mã số thuế doanh nghiệp đã tồn tại');
+    }
+    if (constraint.includes('businesses_business_code')) {
+      return new ConflictException('Mã doanh nghiệp đã tồn tại');
+    }
+    return null;
+  }
+
+  private async getBusinessSchemaNames(): Promise<string[]> {
+    const rows = await this.platformDb.db
+      .select({ schemaName: businesses.schemaName })
+      .from(businesses);
+
+    return rows
+      .map((row) => row.schemaName)
+      .filter((schemaName): schemaName is string => Boolean(schemaName));
+  }
+
+  private async ensureStaffLoginUniqueGlobal(
+    fields: StaffLoginFields,
+    exclude?: { schemaName: string; staffId: string },
+  ) {
+    const platformFilters: SQL[] = [];
+    if (fields.email) {
+      platformFilters.push(sql`LOWER(${accounts.email}) = ${fields.email.toLowerCase()}`);
+    }
+    if (fields.phone) {
+      platformFilters.push(eq(accounts.phone, fields.phone));
+    }
+    if (fields.username) {
+      platformFilters.push(sql`LOWER(${accounts.username}) = ${fields.username.toLowerCase()}`);
+    }
+
+    if (platformFilters.length > 0) {
+      const platformWhere = platformFilters.length === 1 ? platformFilters[0] : (or(...platformFilters) as SQL);
+      const [duplicateAccount] = await this.platformDb.db
+        .select({
+          email: accounts.email,
+          phone: accounts.phone,
+          username: accounts.username,
+        })
+        .from(accounts)
+        .where(platformWhere)
+        .limit(1);
+
+      if (duplicateAccount) {
+        if (fields.phone && duplicateAccount.phone === fields.phone) {
+          throw new ConflictException('Số điện thoại đã được sử dụng bởi tài khoản khác');
+        }
+        if (fields.email && duplicateAccount.email?.toLowerCase() === fields.email.toLowerCase()) {
+          throw new ConflictException('Email đã được sử dụng bởi tài khoản khác');
+        }
+        if (fields.username && duplicateAccount.username?.toLowerCase() === fields.username.toLowerCase()) {
+          throw new ConflictException('Username đã được sử dụng bởi tài khoản khác');
+        }
+      }
+    }
+
+    if (!fields.email && !fields.phone && !fields.username) return;
+
+    const schemaNames = await this.getBusinessSchemaNames();
+    for (const schemaName of schemaNames) {
+      const schema = quoteIdentifier(schemaName);
+      const clauses: string[] = [];
+      const values: unknown[] = [];
+
+      const addValue = (value: unknown) => {
+        values.push(value);
+        return `$${values.length}`;
+      };
+
+      if (fields.email) {
+        clauses.push(`LOWER(email) = LOWER(${addValue(fields.email)})`);
+      }
+      if (fields.phone) {
+        clauses.push(`phone = ${addValue(fields.phone)}`);
+      }
+      if (fields.username) {
+        clauses.push(`LOWER(username) = LOWER(${addValue(fields.username)})`);
+      }
+      if (clauses.length === 0) continue;
+
+      let excludeSql = '';
+      if (exclude && exclude.schemaName === schemaName) {
+        excludeSql = `AND id <> ${addValue(exclude.staffId)}::uuid`;
+      }
+
+      const { rows } = await this.adminPool.query<{
+        email: string | null;
+        phone: string | null;
+        username: string | null;
+      }>(
+        `SELECT email, phone, username
+         FROM ${schema}.staff_members
+         WHERE (${clauses.join(' OR ')}) ${excludeSql}
+         LIMIT 1`,
+        values,
+      );
+
+      const duplicateStaff = rows[0];
+      if (!duplicateStaff) continue;
+
+      if (fields.phone && duplicateStaff.phone === fields.phone) {
+        throw new ConflictException('Số điện thoại đã được sử dụng bởi tài khoản khác');
+      }
+      if (fields.email && duplicateStaff.email?.toLowerCase() === fields.email.toLowerCase()) {
+        throw new ConflictException('Email đã được sử dụng bởi tài khoản khác');
+      }
+      if (fields.username && duplicateStaff.username?.toLowerCase() === fields.username.toLowerCase()) {
+        throw new ConflictException('Username đã được sử dụng bởi tài khoản khác');
+      }
+    }
+  }
+
   onModuleInit() {
     this.adminPool = new Pool({ connectionString: env.databaseUrl });
   }
@@ -75,40 +308,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     const { page, limit, status, search, assigneeId } = dto;
     const offset = (page - 1) * limit;
 
-    const filters: SQL[] = [];
-
-    if (scopeAccountId) {
-      const assigned = await this.platformDb.db
-        .select({ businessId: accountBusinesses.businessId })
-        .from(accountBusinesses)
-        .where(and(eq(accountBusinesses.accountId, scopeAccountId), eq(accountBusinesses.status, 'active')));
-      const ids = assigned.map((r) => r.businessId).filter(Boolean) as string[];
-      if (ids.length === 0) return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
-      filters.push(inArray(businesses.id, ids));
-    }
-
-    if (assigneeId) {
-      const assigned = await this.platformDb.db
-        .select({ businessId: accountBusinesses.businessId })
-        .from(accountBusinesses)
-        .where(and(eq(accountBusinesses.accountId, assigneeId), eq(accountBusinesses.status, 'active')));
-      const ids = assigned.map((r) => r.businessId).filter(Boolean) as string[];
-      if (ids.length === 0) return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
-      filters.push(inArray(businesses.id, ids));
-    }
-
-    if (status) filters.push(eq(businesses.status, status));
-    if (search) {
-      filters.push(
-        or(
-          ilike(businesses.legalName!, `%${search}%`),
-          ilike(businesses.businessCode!, `%${search}%`),
-          ilike(businesses.brandName!, `%${search}%`),
-          ilike(businesses.email!, `%${search}%`),
-        ) as SQL,
-      );
-    }
-    const whereClause = filters.length > 0 ? and(...filters) : undefined;
+    const whereClause = await this.buildBusinessListWhere(dto, scopeAccountId);
 
     const [rows, [{ total }]] = await Promise.all([
       this.platformDb.db
@@ -179,6 +379,120 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async summary(dto: Pick<ListBusinessesDto, 'status' | 'search' | 'assigneeId'>, scopeAccountId?: string) {
+    const whereClause = await this.buildBusinessListWhere(dto, scopeAccountId);
+    const trialingSql = sql`
+      ${businesses.status} = 'active'
+      AND COALESCE(${businessSubscriptions.status}, 'active') NOT IN ('cancelled', 'inactive', 'pending')
+      AND (${businessSubscriptions.currentPeriodEnd} IS NULL OR ${businessSubscriptions.currentPeriodEnd} >= NOW())
+      AND COALESCE(${businesses.trialEndsAt}, ${businesses.createdAt} + INTERVAL '10 days') > NOW()
+    `;
+    const expiringSql = sql`
+      ${trialingSql}
+      AND COALESCE(${businesses.trialEndsAt}, ${businesses.createdAt} + INTERVAL '10 days') <= NOW() + INTERVAL '2 days'
+    `;
+    const pastDueSql = sql`
+      ${businesses.status} = 'active'
+      AND COALESCE(${businessSubscriptions.status}, 'active') NOT IN ('cancelled', 'inactive', 'pending')
+      AND ${businessSubscriptions.currentPeriodEnd} IS NOT NULL
+      AND ${businessSubscriptions.currentPeriodEnd} < NOW()
+    `;
+
+    const [row] = await this.platformDb.db
+      .select({
+        total: count(),
+        active: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'active')`,
+        pending: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'pending')`,
+        suspended: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'suspended')`,
+        inactive: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'inactive')`,
+        trialing: sql<number>`COUNT(*) FILTER (WHERE ${trialingSql})`,
+        expiring: sql<number>`COUNT(*) FILTER (WHERE ${expiringSql})`,
+        pastDue: sql<number>`COUNT(*) FILTER (WHERE ${pastDueSql})`,
+      })
+      .from(businesses)
+      .leftJoin(businessSubscriptions, eq(businessSubscriptions.businessId, businesses.id))
+      .where(whereClause);
+
+    return {
+      total: Number(row?.total ?? 0),
+      access: {
+        active: Number(row?.active ?? 0),
+        pending: Number(row?.pending ?? 0),
+        suspended: Number(row?.suspended ?? 0),
+        inactive: Number(row?.inactive ?? 0),
+      },
+      subscription: {
+        trialing: Number(row?.trialing ?? 0),
+        expiring: Number(row?.expiring ?? 0),
+        pastDue: Number(row?.pastDue ?? 0),
+      },
+    };
+  }
+
+  private async buildBusinessListWhere(
+    dto: Pick<ListBusinessesDto, 'status' | 'search' | 'assigneeId'>,
+    scopeAccountId?: string,
+  ): Promise<SQL | undefined> {
+    const { status, search, assigneeId } = dto;
+    const filters: SQL[] = [];
+
+    const assignmentAccountIds = [...new Set([scopeAccountId, assigneeId].filter(Boolean))] as string[];
+    if (assignmentAccountIds.length > 0) {
+      const assignedByAccount = await this.fetchActiveAssignedBusinessIds(assignmentAccountIds);
+      let allowedIds: Set<string> | null = null;
+
+      for (const accountId of assignmentAccountIds) {
+        const ids = new Set(assignedByAccount.get(accountId) ?? []);
+        allowedIds = allowedIds
+          ? new Set([...allowedIds].filter((businessId) => ids.has(businessId)))
+          : ids;
+      }
+
+      const ids = [...(allowedIds ?? new Set<string>())];
+      filters.push(ids.length > 0 ? inArray(businesses.id, ids) : sql`1=0`);
+    }
+
+    if (status) filters.push(eq(businesses.status, status));
+    if (search) {
+      filters.push(
+        or(
+          ilike(businesses.legalName!, `%${search}%`),
+          ilike(businesses.businessCode!, `%${search}%`),
+          ilike(businesses.brandName!, `%${search}%`),
+          ilike(businesses.email!, `%${search}%`),
+        ) as SQL,
+      );
+    }
+
+    return filters.length > 0 ? and(...filters) : undefined;
+  }
+
+  private async fetchActiveAssignedBusinessIds(accountIds: string[]): Promise<Map<string, string[]>> {
+    if (accountIds.length === 0) return new Map();
+
+    const rows = await this.platformDb.db
+      .select({
+        accountId: accountBusinesses.accountId,
+        businessId: accountBusinesses.businessId,
+      })
+      .from(accountBusinesses)
+      .where(
+        and(
+          inArray(accountBusinesses.accountId, accountIds),
+          eq(accountBusinesses.status, 'active'),
+        ),
+      );
+
+    const map = new Map<string, string[]>();
+    for (const row of rows) {
+      if (!row.accountId || !row.businessId) continue;
+      const list = map.get(row.accountId) ?? [];
+      list.push(row.businessId);
+      map.set(row.accountId, list);
+    }
+    return map;
+  }
+
   private async fetchAssignedAccounts(
     businessIds: string[],
   ): Promise<Map<string, { id: string; fullName: string; email: string | null }>> {
@@ -194,6 +508,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
        JOIN platform.accounts a ON a.id = ab.account_id
        WHERE ab.business_id = ANY($1)
          AND ab.status = 'active'
+         AND a.is_platform_admin = true
          AND ab.access_level != 'owner'
        ORDER BY ab.business_id,
          CASE
@@ -215,21 +530,37 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     targets: { id: string; schemaName: string | null }[],
   ): Promise<Map<string, { storeCode: string; storeName: string }>> {
     const map = new Map<string, { storeCode: string; storeName: string }>();
+    await this.mapWithConcurrency(targets, FIRST_STORE_QUERY_CONCURRENCY, async ({ id, schemaName }) => {
+      if (!schemaName) return;
+      try {
+        const { rows } = await this.adminPool.query<{ storeCode: string; storeName: string }>(
+          `SELECT store_code AS "storeCode", store_name AS "storeName"
+           FROM "${schemaName}".stores ORDER BY created_at LIMIT 1`,
+        );
+        if (rows[0]) map.set(id, rows[0]);
+      } catch {
+        // schema not provisioned yet
+      }
+    });
+    return map;
+  }
+
+  private async mapWithConcurrency<T>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T) => Promise<void>,
+  ): Promise<void> {
+    let cursor = 0;
+    const workerCount = Math.min(concurrency, items.length);
+
     await Promise.all(
-      targets.map(async ({ id, schemaName }) => {
-        if (!schemaName) return;
-        try {
-          const { rows } = await this.adminPool.query<{ storeCode: string; storeName: string }>(
-            `SELECT store_code AS "storeCode", store_name AS "storeName"
-             FROM "${schemaName}".stores ORDER BY created_at LIMIT 1`,
-          );
-          if (rows[0]) map.set(id, rows[0]);
-        } catch {
-          // schema not provisioned yet
+      Array.from({ length: workerCount }, async () => {
+        while (cursor < items.length) {
+          const item = items[cursor++];
+          await worker(item);
         }
       }),
     );
-    return map;
   }
 
   async getOne(id: string, scopeAccountId?: string) {
@@ -245,7 +576,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
           ),
         )
         .limit(1);
-      if (!access) throw new ForbiddenException('Access denied');
+      if (!access) throw new ForbiddenException('Không có quyền truy cập doanh nghiệp này');
     }
 
     const [business] = await this.platformDb.db
@@ -279,7 +610,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       .where(eq(businesses.id, id))
       .limit(1);
 
-    if (!business) throw new NotFoundException('Business not found');
+    if (!business) throw new NotFoundException('Không tìm thấy doanh nghiệp');
 
     const { _subStatus, _subPeriodStart, _subPeriodEnd, _subRenewedAt, ...row } = business;
     const subscriptionStatus = deriveSubscriptionStatus(row.status, row.createdAt, _subStatus, _subPeriodEnd, row.trialEndsAt);
@@ -316,7 +647,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       .from(businesses)
       .where(eq(businesses.id, id))
       .limit(1);
-    if (!biz) throw new NotFoundException('Business not found');
+    if (!biz) throw new NotFoundException('Không tìm thấy doanh nghiệp');
     if (!biz.schemaName) return { data: [] };
 
     try {
@@ -346,14 +677,73 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async createStore(businessId: string, dto: CreateStoreDto) {
+    const [biz] = await this.platformDb.db
+      .select({ schemaName: businesses.schemaName })
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1);
+    if (!biz) throw new NotFoundException('Không tìm thấy doanh nghiệp');
+    if (!biz.schemaName) throw new BadRequestException('Schema doanh nghiệp chưa sẵn sàng');
+
+    const bizPool = this.businessDb.getPool(biz.schemaName);
+
+    // Auto-generate storeCode if not provided
+    let storeCode = dto.storeCode;
+    if (!storeCode) {
+      const { rows: countRows } = await bizPool.query<{ cnt: string }>(
+        `SELECT COUNT(*)::text AS cnt FROM stores`,
+      );
+      const n = parseInt(countRows[0]?.cnt ?? '0', 10) + 1;
+      storeCode = `STORE${String(n).padStart(3, '0')}`;
+    }
+
+    // Check storeCode uniqueness
+    const { rows: existing } = await bizPool.query<{ id: string }>(
+      `SELECT id FROM stores WHERE store_code = $1 LIMIT 1`,
+      [storeCode],
+    );
+    if (existing.length > 0) throw new ConflictException(`Mã cửa hàng "${storeCode}" đã tồn tại`);
+
+    const { rows } = await bizPool.query<{ id: string; storeCode: string; storeName: string }>(
+      `INSERT INTO stores (store_code, store_name, store_type, phone, email, address, district, city, timezone)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id::text, store_code AS "storeCode", store_name AS "storeName"`,
+      [
+        storeCode,
+        dto.storeName,
+        dto.storeType,
+        dto.phone ?? null,
+        dto.email ?? null,
+        dto.address ?? null,
+        dto.district ?? null,
+        dto.city ?? null,
+        dto.timezone ?? 'Asia/Ho_Chi_Minh',
+      ],
+    );
+
+    return rows[0];
+  }
+
   private async getStaffCountsByStore(schemaName: string, storeIds: string[]): Promise<Map<string, number>> {
     if (storeIds.length === 0) return new Map();
     try {
       const { rows } = await this.adminPool.query<{ store_id: string; cnt: string }>(
-        `SELECT primary_store_id AS store_id, COUNT(*)::text AS cnt
-         FROM "${schemaName}".staff_members
-         WHERE primary_store_id = ANY($1) AND is_active = true
-         GROUP BY primary_store_id`,
+        `SELECT store_id, COUNT(DISTINCT staff_id)::text AS cnt
+         FROM (
+           SELECT primary_store_id::text AS store_id, id::text AS staff_id
+           FROM "${schemaName}".staff_members
+           WHERE primary_store_id = ANY($1::uuid[]) AND is_active = true
+           UNION
+           SELECT srb.store_id::text AS store_id, srb.staff_id::text AS staff_id
+           FROM "${schemaName}".staff_role_bindings srb
+           JOIN "${schemaName}".staff_members sm ON sm.id = srb.staff_id
+           WHERE srb.store_id = ANY($1::uuid[])
+             AND srb.status = 'active'
+             AND sm.is_active = true
+         ) assigned
+         WHERE store_id IS NOT NULL
+         GROUP BY store_id`,
         [storeIds],
       );
       return new Map(rows.map((r) => [r.store_id, parseInt(r.cnt, 10)]));
@@ -377,35 +767,62 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       })
       .from(accountBusinesses)
       .innerJoin(accounts, eq(accounts.id, accountBusinesses.accountId))
-      .where(and(eq(accountBusinesses.businessId, businessId), eq(accountBusinesses.status, 'active')))
+      .where(
+        and(
+          eq(accountBusinesses.businessId, businessId),
+          eq(accountBusinesses.status, 'active'),
+          eq(accounts.isPlatformAdmin, true),
+        ),
+      )
       .orderBy(accountBusinesses.createdAt);
     return { data: rows };
   }
 
-  async addAssignee(businessId: string, dto: AddAssigneeDto) {
+  async addAssignee(businessId: string, dto: AddAssigneeDto, actorId?: string) {
     const [biz] = await this.platformDb.db
       .select({ id: businesses.id })
       .from(businesses)
       .where(eq(businesses.id, businessId))
       .limit(1);
-    if (!biz) throw new NotFoundException('Business not found');
+    if (!biz) throw new NotFoundException('Không tìm thấy doanh nghiệp');
 
     const [account] = await this.platformDb.db
-      .select({ id: accounts.id })
+      .select({ id: accounts.id, status: accounts.status, isPlatformAdmin: accounts.isPlatformAdmin })
       .from(accounts)
       .where(eq(accounts.id, dto.accountId))
       .limit(1);
-    if (!account) throw new NotFoundException('Account not found');
+    if (!account) throw new NotFoundException('Không tìm thấy tài khoản');
+    if (account.status !== 'active') {
+      throw new BadRequestException('Tài khoản chưa hoạt động hoặc đã bị khóa');
+    }
+    if (!account.isPlatformAdmin) {
+      throw new BadRequestException('Chỉ tài khoản quản trị nền tảng mới có thể được gán phụ trách');
+    }
 
-    await this.platformDb.db
-      .insert(accountBusinesses)
-      .values({
-        accountId: dto.accountId,
-        businessId,
-        accessLevel: dto.accessLevel,
-        status: 'active',
-      })
-      .onConflictDoNothing();
+    const accessLevel = dto.accessLevel ?? 'admin';
+    const doInsert = (db: typeof this.platformDb.db) =>
+      db
+        .insert(accountBusinesses)
+        .values({
+          accountId: dto.accountId,
+          businessId,
+          accessLevel,
+          status: 'active',
+        })
+        .onConflictDoUpdate({
+          target: [accountBusinesses.accountId, accountBusinesses.businessId],
+          set: {
+            accessLevel,
+            status: 'active',
+            updatedAt: new Date().toISOString(),
+          },
+        });
+
+    if (actorId) {
+      await this.platformDb.runWithActor(actorId, doInsert);
+    } else {
+      await doInsert(this.platformDb.db);
+    }
 
     return { ok: true };
   }
@@ -428,16 +845,23 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       .from(businesses)
       .where(eq(businesses.id, id))
       .limit(1);
-    if (!business) throw new NotFoundException('Business not found');
+    if (!business) throw new NotFoundException('Không tìm thấy doanh nghiệp');
+
+    const normalizedIdentity = normalizeBusinessIdentity({
+      email: dto.email,
+      phone: dto.phone,
+      taxCode: dto.taxCode,
+    });
+    await this.assertBusinessIdentityUnique(normalizedIdentity, id);
 
     const patch: Partial<typeof businesses.$inferInsert> = {
       updatedAt: new Date().toISOString(),
     };
     if (dto.legalName !== undefined) patch.legalName = dto.legalName;
     if (dto.brandName !== undefined) patch.brandName = dto.brandName;
-    if (dto.email !== undefined) patch.email = dto.email;
-    if (dto.phone !== undefined) patch.phone = dto.phone;
-    if (dto.taxCode !== undefined) patch.taxCode = dto.taxCode;
+    if (dto.email !== undefined) patch.email = normalizedIdentity.email ?? null;
+    if (dto.phone !== undefined) patch.phone = normalizedIdentity.phone ?? null;
+    if (dto.taxCode !== undefined) patch.taxCode = normalizedIdentity.taxCode ?? null;
     if (dto.currencyCode !== undefined) patch.currencyCode = dto.currencyCode;
     if (dto.website !== undefined) patch.website = dto.website;
     if (dto.legalAddress !== undefined) patch.legalAddress = dto.legalAddress;
@@ -447,10 +871,14 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     const doUpdate = (db: typeof this.platformDb.db) =>
       db.update(businesses).set(patch).where(eq(businesses.id, id));
 
-    if (actorId) {
-      await this.platformDb.runWithActor(actorId, doUpdate);
-    } else {
-      await doUpdate(this.platformDb.db);
+    try {
+      if (actorId) {
+        await this.platformDb.runWithActor(actorId, doUpdate);
+      } else {
+        await doUpdate(this.platformDb.db);
+      }
+    } catch (err) {
+      throw this.mapBusinessIdentityConflict(err) ?? err;
     }
 
     return this.getOne(id);
@@ -462,7 +890,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       .from(businesses)
       .where(eq(businesses.id, id))
       .limit(1);
-    if (!business) throw new NotFoundException('Business not found');
+    if (!business) throw new NotFoundException('Không tìm thấy doanh nghiệp');
 
     const baseDate = business.trialEndsAt
       ? new Date(business.trialEndsAt)
@@ -489,7 +917,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     const schemaName = `business_${dto.businessCode}`;
 
     if (!/^[a-z0-9_]{3,50}$/.test(dto.businessCode)) {
-      throw new BadRequestException('Invalid businessCode format');
+      throw new BadRequestException('Mã doanh nghiệp không đúng định dạng');
     }
 
     const [existing] = await this.platformDb.db
@@ -497,13 +925,26 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       .from(businesses)
       .where(eq(businesses.businessCode!, dto.businessCode))
       .limit(1);
-    if (existing) throw new ConflictException('businessCode already exists');
+    if (existing) throw new ConflictException('Mã doanh nghiệp đã tồn tại');
+
+    const normalizedIdentity = normalizeBusinessIdentity({
+      email: dto.email,
+      phone: dto.phone,
+      taxCode: dto.taxCode,
+    });
+    await this.assertBusinessIdentityUnique(normalizedIdentity);
+    const normalizedOwnerEmail = normalizeLoginEmail(dto.ownerEmail);
+    const normalizedOwnerPhone = normalizeLoginPhone(dto.ownerPhone);
+    await this.ensureStaffLoginUniqueGlobal({
+      email: normalizedOwnerEmail,
+      phone: normalizedOwnerPhone,
+    });
 
     const { rows: schemaCheck } = await this.adminPool.query(
       `SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1`,
       [schemaName],
     );
-    if (schemaCheck.length > 0) throw new ConflictException('Schema already exists');
+    if (schemaCheck.length > 0) throw new ConflictException('Schema doanh nghiệp đã tồn tại');
 
     let schemaCreated = false;
     let businessId: string | null = null;
@@ -537,9 +978,9 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
           schemaName,
           legalName: dto.legalName,
           brandName: dto.brandName ?? dto.legalName,
-          email: dto.email ?? null,
-          phone: dto.phone ?? null,
-          taxCode: dto.taxCode ?? null,
+          email: normalizedIdentity.email ?? null,
+          phone: normalizedIdentity.phone ?? null,
+          taxCode: normalizedIdentity.taxCode ?? null,
           currencyCode: dto.currencyCode ?? 'VND',
           website: dto.website ?? null,
           legalAddress: dto.legalAddress ?? null,
@@ -623,7 +1064,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       const { rows: staffRows } = await bizPool.query<{ id: string }>(
         `INSERT INTO staff_members (staff_code, full_name, email, phone, password_hash, role, is_active, employment_status, primary_store_id)
          VALUES ($1, $2, $3, $4, $5, 'admin', true, 'active', $6) RETURNING id`,
-        [ownerCode, dto.ownerFullName, dto.ownerEmail ?? null, dto.ownerPhone ?? null, passwordHash, storeId],
+        [ownerCode, dto.ownerFullName, normalizedOwnerEmail ?? null, normalizedOwnerPhone ?? null, passwordHash, storeId],
       );
 
       // Step 10: Bind OWNER role
@@ -646,7 +1087,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         await this.platformDb.db.delete(businessSubscriptions).where(eq(businessSubscriptions.businessId, businessId)).catch(() => {});
         await this.platformDb.db.delete(businesses).where(eq(businesses.id, businessId)).catch(() => {});
       }
-      throw err;
+      throw this.mapBusinessIdentityConflict(err) ?? err;
     }
   }
 
@@ -656,7 +1097,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       .from(businesses)
       .where(eq(businesses.id, businessId))
       .limit(1);
-    if (!biz) throw new NotFoundException('Business not found');
+    if (!biz) throw new NotFoundException('Không tìm thấy doanh nghiệp');
     if (!biz.schemaName) return { data: [] };
 
     try {
@@ -664,18 +1105,41 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       let where = '';
       if (storeId) {
         params.push(storeId);
-        where = `WHERE sm.primary_store_id = $1::uuid`;
+        where = `WHERE sm.primary_store_id = $1::uuid
+          OR EXISTS (
+            SELECT 1
+            FROM "${biz.schemaName}".staff_role_bindings srb_filter
+            WHERE srb_filter.staff_id = sm.id
+              AND srb_filter.store_id = $1::uuid
+              AND srb_filter.status = 'active'
+          )`;
       }
       const { rows } = await this.adminPool.query(
         `SELECT sm.id::text, sm.staff_code AS "staffCode", sm.full_name AS "fullName",
-                sm.email, sm.phone, sm.role, sm.is_active AS "isActive",
+                sm.username, sm.email, sm.phone, sm.role, sm.is_active AS "isActive",
                 sm.employment_status AS "employmentStatus",
                 sm.primary_store_id::text AS "primaryStoreId",
                 sm.last_login_at AS "lastLoginAt", sm.created_at AS "createdAt",
-                s.store_name AS "storeName", s.store_code AS "storeCode"
+                s.store_name AS "storeName", s.store_code AS "storeCode",
+                COALESCE(
+                  jsonb_agg(
+                    DISTINCT jsonb_build_object(
+                      'storeId', rb.store_id::text,
+                      'storeName', rs.store_name,
+                      'storeCode', rs.store_code,
+                      'role', lower(r.role_key)
+                    )
+                  ) FILTER (WHERE rb.id IS NOT NULL),
+                  '[]'::jsonb
+                ) AS "storeAssignments"
          FROM "${biz.schemaName}".staff_members sm
          LEFT JOIN "${biz.schemaName}".stores s ON s.id = sm.primary_store_id
+         LEFT JOIN "${biz.schemaName}".staff_role_bindings rb
+           ON rb.staff_id = sm.id AND rb.status = 'active' AND rb.store_id IS NOT NULL
+         LEFT JOIN "${biz.schemaName}".roles r ON r.id = rb.role_id
+         LEFT JOIN "${biz.schemaName}".stores rs ON rs.id = rb.store_id
          ${where}
+         GROUP BY sm.id, s.store_name, s.store_code
          ORDER BY sm.created_at`,
         params,
       );
@@ -685,19 +1149,110 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private normalizeStaffStoreRoles(
+    primaryStoreId: string,
+    primaryRole: StaffRoleValue,
+    storeRoles?: StaffStoreRole[],
+  ): StaffStoreRole[] {
+    const byStore = new Map<string, string>();
+    for (const item of storeRoles ?? []) {
+      byStore.set(item.storeId, item.role);
+    }
+    if (!byStore.has(primaryStoreId)) {
+      byStore.set(primaryStoreId, primaryRole);
+    }
+    return [...byStore.entries()].map(([storeId, role]) => ({ storeId, role }));
+  }
+
+  private async assertStoresExist(db: Queryable, storeIds: string[]) {
+    const uniqueIds = [...new Set(storeIds)];
+    if (uniqueIds.length === 0) return;
+
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id::text FROM stores WHERE id = ANY($1::uuid[])`,
+      [uniqueIds],
+    );
+    const foundIds = new Set(rows.map((row) => row.id));
+    const missingIds = uniqueIds.filter((storeId) => !foundIds.has(storeId));
+    if (missingIds.length > 0) {
+      throw new NotFoundException('Một hoặc nhiều cửa hàng không tồn tại');
+    }
+  }
+
+  private async replaceStaffStoreRoles(db: Queryable, staffId: string, storeRoles: StaffStoreRole[]) {
+    await db.query(
+      `DELETE FROM staff_role_bindings WHERE staff_id = $1 AND store_id IS NOT NULL`,
+      [staffId],
+    );
+
+    if (storeRoles.length === 0) return;
+
+    const roleKeys = [...new Set(storeRoles.map((item) => STAFF_ROLE_KEY_MAP[item.role]))];
+    const { rows: roleRows } = await db.query<{ id: string; role_key: string }>(
+      `SELECT id::text, role_key FROM roles WHERE role_key = ANY($1::text[])`,
+      [roleKeys],
+    );
+    const roleIds = new Map(roleRows.map((row) => [row.role_key, row.id]));
+
+    for (const item of storeRoles) {
+      const roleKey = STAFF_ROLE_KEY_MAP[item.role];
+      const roleId = roleIds.get(roleKey);
+      if (!roleId) {
+        throw new NotFoundException(`Vai trò ${item.role} chưa được cấu hình`);
+      }
+
+      await db.query(
+        `INSERT INTO staff_role_bindings (staff_id, role_id, store_id, status)
+         VALUES ($1, $2, $3, 'active')`,
+        [staffId, roleId, item.storeId],
+      );
+    }
+  }
+
+  private async ensureStaffUniqueFields(
+    schemaName: string,
+    db: Queryable,
+    fields: { staffCode?: string | null; email?: string | null; phone?: string | null; username?: string | null },
+    excludeStaffId?: string,
+  ) {
+    const excludeSql = excludeStaffId ? 'AND id <> $2::uuid' : '';
+    const excludeParams = excludeStaffId ? [excludeStaffId] : [];
+
+    if (fields.staffCode) {
+      const { rows } = await db.query<{ id: string }>(
+        `SELECT id FROM staff_members WHERE staff_code = $1 ${excludeSql} LIMIT 1`,
+        [fields.staffCode, ...excludeParams],
+      );
+      if (rows.length > 0) throw new ConflictException(`Mã nhân viên "${fields.staffCode}" đã tồn tại`);
+    }
+
+    await this.ensureStaffLoginUniqueGlobal(
+      {
+        email: fields.email,
+        phone: fields.phone,
+        username: fields.username,
+      },
+      excludeStaffId ? { schemaName, staffId: excludeStaffId } : undefined,
+    );
+  }
+
   async createStaff(businessId: string, dto: CreateStaffDto) {
     const [biz] = await this.platformDb.db
       .select({ schemaName: businesses.schemaName })
       .from(businesses)
       .where(eq(businesses.id, businessId))
       .limit(1);
-    if (!biz) throw new NotFoundException('Business not found');
-    if (!biz.schemaName) throw new BadRequestException('Business schema not ready');
+    if (!biz) throw new NotFoundException('Không tìm thấy doanh nghiệp');
+    if (!biz.schemaName) throw new BadRequestException('Schema doanh nghiệp chưa sẵn sàng');
 
     const bizPool = this.businessDb.getPool(biz.schemaName);
+    const normalizedStaffCode = dto.staffCode?.trim();
+    const normalizedUsername = normalizeUsername(dto.username);
+    const normalizedEmail = normalizeLoginEmail(dto.email);
+    const normalizedPhone = normalizeLoginPhone(dto.phone);
 
     // Auto-generate staffCode if not provided
-    let staffCode = dto.staffCode;
+    let staffCode = normalizedStaffCode;
     if (!staffCode) {
       const { rows: countRows } = await bizPool.query<{ cnt: string }>(
         `SELECT COUNT(*)::text AS cnt FROM staff_members`,
@@ -706,42 +1261,181 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       staffCode = `STAFF${String(n).padStart(3, '0')}`;
     }
 
-    // Check storeId exists
-    const { rows: storeRows } = await bizPool.query<{ id: string }>(
-      `SELECT id FROM stores WHERE id = $1 LIMIT 1`,
-      [dto.primaryStoreId],
-    );
-    if (storeRows.length === 0) throw new NotFoundException('Store not found');
+    const storeRoles = this.normalizeStaffStoreRoles(dto.primaryStoreId, dto.role, dto.storeRoles);
+    const primaryRole = storeRoles.find((item) => item.storeId === dto.primaryStoreId)?.role ?? dto.role;
+
+    await this.ensureStaffUniqueFields(biz.schemaName, bizPool, {
+      staffCode,
+      username: normalizedUsername,
+      email: normalizedEmail,
+      phone: normalizedPhone,
+    });
+    await this.assertStoresExist(bizPool, storeRoles.map((item) => item.storeId));
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
-    const { rows } = await bizPool.query<{ id: string }>(
-      `INSERT INTO staff_members
-         (staff_code, full_name, email, phone, password_hash, role, is_active, employment_status, primary_store_id)
-       VALUES ($1, $2, $3, $4, $5, $6, true, 'active', $7)
-       RETURNING id::text`,
-      [staffCode, dto.fullName, dto.email ?? null, dto.phone ?? null, passwordHash, dto.role, dto.primaryStoreId],
-    );
-    const staffId = rows[0].id;
-
-    // Bind to matching system role
-    const roleKeyMap: Record<string, string> = {
-      admin: 'ADMIN', cashier: 'CASHIER', inventory: 'INVENTORY',
-      kitchen: 'KITCHEN', delivery: 'DELIVERY', staff: 'STAFF',
-    };
-    const roleKey = roleKeyMap[dto.role] ?? 'STAFF';
-    const { rows: roleRows } = await bizPool.query<{ id: string }>(
-      `SELECT id FROM roles WHERE role_key = $1 LIMIT 1`,
-      [roleKey],
-    );
-    if (roleRows.length > 0) {
-      await bizPool.query(
-        `INSERT INTO staff_role_bindings (staff_id, role_id, store_id, status) VALUES ($1, $2, $3, 'active')
-         ON CONFLICT DO NOTHING`,
-        [staffId, roleRows[0].id, dto.primaryStoreId],
+    const client = await bizPool.connect();
+    try {
+      await client.query('BEGIN');
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO staff_members
+           (staff_code, username, full_name, email, phone, password_hash, role, is_active, employment_status, primary_store_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, true, 'active', $8)
+         RETURNING id::text`,
+        [
+          staffCode,
+          normalizedUsername ?? null,
+          dto.fullName,
+          normalizedEmail ?? null,
+          normalizedPhone ?? null,
+          passwordHash,
+          primaryRole,
+          dto.primaryStoreId,
+        ],
       );
+      const staffId = inserted.rows[0]?.id;
+      if (!staffId) {
+        throw new ConflictException('Không thể tạo tài khoản nhân viên');
+      }
+
+      await this.replaceStaffStoreRoles(client, staffId, storeRoles);
+      await client.query('COMMIT');
+      return { id: staffId, staffCode };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      const pgError = error as { code?: string; constraint?: string };
+      if (pgError.code === '23505') {
+        const constraint = pgError.constraint ?? '';
+        if (constraint.includes('email')) {
+          throw new ConflictException('Email đã tồn tại');
+        }
+        if (constraint.includes('phone')) {
+          throw new ConflictException('Số điện thoại đã tồn tại');
+        }
+        if (constraint.includes('username')) {
+          throw new ConflictException('Username đã tồn tại');
+        }
+        if (constraint.includes('staff_code') || constraint.includes('staff_members_staff_code_unique') || constraint.includes('uq_staff_members_staff_code')) {
+          throw new ConflictException(`Mã nhân viên "${staffCode}" đã tồn tại`);
+        }
+        throw new ConflictException('Tài khoản doanh nghiệp đã tồn tại (mã nhân viên, username, email hoặc số điện thoại)');
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateStaff(businessId: string, staffId: string, dto: UpdateStaffDto) {
+    const [biz] = await this.platformDb.db
+      .select({ schemaName: businesses.schemaName })
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1);
+    if (!biz) throw new NotFoundException('Không tìm thấy doanh nghiệp');
+    if (!biz.schemaName) throw new BadRequestException('Schema doanh nghiệp chưa sẵn sàng');
+
+    const bizPool = this.businessDb.getPool(biz.schemaName);
+    const { rows: existingRows } = await bizPool.query<{
+      id: string;
+      staff_code: string;
+      role: StaffRoleValue;
+      primary_store_id: string;
+    }>(
+      `SELECT id::text, staff_code, role, primary_store_id::text
+       FROM staff_members
+       WHERE id = $1::uuid
+       LIMIT 1`,
+      [staffId],
+    );
+    const existing = existingRows[0];
+    if (!existing) throw new NotFoundException('Không tìm thấy nhân viên');
+
+    const normalizedFullName = dto.fullName === null ? null : dto.fullName?.trim();
+    const normalizedStaffCode = dto.staffCode === null ? null : dto.staffCode?.trim();
+    const normalizedUsername = normalizeUsername(dto.username);
+    const normalizedEmail = normalizeLoginEmail(dto.email);
+    const normalizedPhone = normalizeLoginPhone(dto.phone);
+    const nextPrimaryStoreId = dto.primaryStoreId ?? existing.primary_store_id;
+    const fallbackRole = dto.role ?? existing.role;
+    const storeRoles = dto.storeRoles
+      ? this.normalizeStaffStoreRoles(nextPrimaryStoreId, fallbackRole, dto.storeRoles)
+      : undefined;
+    const nextRole = storeRoles?.find((item) => item.storeId === nextPrimaryStoreId)?.role ?? fallbackRole;
+    const nextMemberRole = nextRole === 'owner' ? 'admin' : nextRole;
+
+    await this.ensureStaffUniqueFields(
+      biz.schemaName,
+      bizPool,
+      {
+        staffCode: normalizedStaffCode === undefined ? undefined : normalizedStaffCode,
+        username: normalizedUsername === undefined ? undefined : normalizedUsername,
+        email: normalizedEmail === undefined ? undefined : normalizedEmail,
+        phone: normalizedPhone === undefined ? undefined : normalizedPhone,
+      },
+      staffId,
+    );
+
+    if (dto.primaryStoreId || storeRoles) {
+      await this.assertStoresExist(bizPool, [
+        nextPrimaryStoreId,
+        ...(storeRoles ?? []).map((item) => item.storeId),
+      ]);
     }
 
-    return { id: staffId, staffCode };
+    const assignments: string[] = ['updated_at = NOW()'];
+    const values: unknown[] = [];
+    const addValue = (column: string, value: unknown) => {
+      values.push(value);
+      assignments.push(`${column} = $${values.length}`);
+    };
+
+    if (normalizedFullName !== undefined) addValue('full_name', normalizedFullName);
+    if (normalizedStaffCode !== undefined) addValue('staff_code', normalizedStaffCode);
+    if (normalizedUsername !== undefined) addValue('username', normalizedUsername);
+    if (normalizedEmail !== undefined) addValue('email', normalizedEmail);
+    if (normalizedPhone !== undefined) addValue('phone', normalizedPhone);
+    if (dto.role !== undefined || storeRoles) addValue('role', nextMemberRole);
+    if (dto.primaryStoreId !== undefined || storeRoles) addValue('primary_store_id', nextPrimaryStoreId);
+    if (dto.isActive !== undefined) addValue('is_active', dto.isActive);
+    if (dto.employmentStatus !== undefined) addValue('employment_status', dto.employmentStatus);
+    if (dto.password) addValue('password_hash', await bcrypt.hash(dto.password, 10));
+
+    const client = await bizPool.connect();
+    try {
+      await client.query('BEGIN');
+      values.push(staffId);
+      await client.query(
+        `UPDATE staff_members SET ${assignments.join(', ')} WHERE id = $${values.length}::uuid`,
+        values,
+      );
+      if (storeRoles) {
+        await this.replaceStaffStoreRoles(client, staffId, storeRoles);
+      }
+      await client.query('COMMIT');
+      return { ok: true };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      const pgError = error as { code?: string; constraint?: string };
+      if (pgError.code === '23505') {
+        const constraint = pgError.constraint ?? '';
+        if (constraint.includes('email')) {
+          throw new ConflictException('Email đã tồn tại');
+        }
+        if (constraint.includes('phone')) {
+          throw new ConflictException('Số điện thoại đã tồn tại');
+        }
+        if (constraint.includes('username')) {
+          throw new ConflictException('Username đã tồn tại');
+        }
+        if (constraint.includes('staff_code') || constraint.includes('staff_members_staff_code_unique') || constraint.includes('uq_staff_members_staff_code')) {
+          throw new ConflictException(`Mã nhân viên "${normalizedStaffCode ?? existing.staff_code}" đã tồn tại`);
+        }
+        throw new ConflictException('Tài khoản doanh nghiệp đã tồn tại (mã nhân viên, username, email hoặc số điện thoại)');
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async updateStatus(id: string, dto: UpdateStatusDto, actorId?: string) {
@@ -750,7 +1444,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       .from(businesses)
       .where(eq(businesses.id, id))
       .limit(1);
-    if (!business) throw new NotFoundException('Business not found');
+    if (!business) throw new NotFoundException('Không tìm thấy doanh nghiệp');
 
     const doUpdate = (db: typeof this.platformDb.db) =>
       db.update(businesses).set({ status: dto.status, updatedAt: new Date().toISOString() }).where(eq(businesses.id, id));

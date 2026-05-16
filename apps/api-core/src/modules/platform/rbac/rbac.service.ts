@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { eq, count, inArray, and, sql } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
+import { PlatformPermissionCacheService } from '@common/auth/platform-permission-cache.service';
 import { roles, permissions, rolePermissions, accountRoleBindings, accounts } from '@schema/platform';
 
 @Injectable()
 export class RbacService {
-  constructor(private readonly platformDb: PlatformDbService) {}
+  constructor(
+    private readonly platformDb: PlatformDbService,
+    private readonly permissionCache: PlatformPermissionCacheService,
+  ) {}
 
   private get db() {
     return this.platformDb.db;
@@ -158,14 +162,14 @@ export class RbacService {
   }
 
   async getRolesForPermission(permissionId: string) {
-    const rows = await this.db.execute(sql.raw(
-      `SELECT r.id::text, r.role_key AS "roleKey", r.role_name AS "roleName",
-              r.role_scope AS "roleScope", r.is_system AS "isSystem"
-       FROM platform.role_permissions rp
-       INNER JOIN platform.roles r ON r.id = rp.role_id
-       WHERE rp.permission_id = '${permissionId}'::uuid
-       ORDER BY r.role_scope, r.role_name`,
-    ));
+    const rows = await this.db.execute(sql`
+      SELECT r.id::text, r.role_key AS "roleKey", r.role_name AS "roleName",
+             r.role_scope AS "roleScope", r.is_system AS "isSystem"
+      FROM platform.role_permissions rp
+      INNER JOIN platform.roles r ON r.id = rp.role_id
+      WHERE rp.permission_id = ${permissionId}::uuid
+      ORDER BY r.role_scope, r.role_name
+    `);
     return { roles: rows.rows };
   }
 
@@ -215,9 +219,12 @@ export class RbacService {
     if (!role) throw new NotFoundException('Role not found');
     if (role.isSystem) throw new BadRequestException('Cannot delete system role');
 
-    await this.db.delete(rolePermissions).where(eq(rolePermissions.roleId, id));
-    await this.db.delete(accountRoleBindings).where(eq(accountRoleBindings.roleId, id));
-    await this.db.delete(roles).where(eq(roles.id, id));
+    await this.db.transaction(async (tx) => {
+      await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, id));
+      await tx.delete(accountRoleBindings).where(eq(accountRoleBindings.roleId, id));
+      await tx.delete(roles).where(eq(roles.id, id));
+    });
+    this.permissionCache.clear();
     return { success: true };
   }
 
@@ -236,6 +243,7 @@ export class RbacService {
     if (existing) throw new ConflictException('Permission already assigned to this role');
 
     await this.db.insert(rolePermissions).values({ roleId, permissionId });
+    this.permissionCache.clear();
     return { success: true };
   }
 
@@ -248,6 +256,7 @@ export class RbacService {
     if (!existing) throw new NotFoundException('Permission not assigned to this role');
 
     await this.db.delete(rolePermissions).where(and(eq(rolePermissions.roleId, roleId), eq(rolePermissions.permissionId, permissionId)));
+    this.permissionCache.clear();
     return { success: true };
   }
 }

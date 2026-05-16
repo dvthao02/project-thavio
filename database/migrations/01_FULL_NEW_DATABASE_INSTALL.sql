@@ -184,6 +184,10 @@ CREATE TABLE IF NOT EXISTS platform.businesses (
   CONSTRAINT chk_businesses_status CHECK (status = ANY(ARRAY['trial','active','suspended','closed']))
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS businesses_tax_code_unique
+  ON platform.businesses (LOWER(tax_code))
+  WHERE tax_code IS NOT NULL;
+
 -- Demo business seed removed for clean new database install.
 
 -- business_branches: Chi nhánh / cửa hàng map sang business schema
@@ -530,6 +534,7 @@ ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS staff_members (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   staff_code          VARCHAR(30)  NOT NULL,  -- AUTO: NV000001
+  username            VARCHAR(80),
   full_name           VARCHAR(255) NOT NULL,
   display_name        VARCHAR(100),
   phone               VARCHAR(30),
@@ -559,6 +564,10 @@ CREATE TABLE IF NOT EXISTS staff_members (
   CONSTRAINT chk_contract_type    CHECK (contract_type = ANY(ARRAY['full_time','part_time','freelance','probation'])),
   CONSTRAINT chk_emp_status       CHECK (employment_status = ANY(ARRAY['active','inactive','terminated','on_leave']))
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS staff_members_username_unique
+  ON staff_members (LOWER(username))
+  WHERE username IS NOT NULL;
 
 -- Khách hàng
 CREATE TABLE IF NOT EXISTS customers (
@@ -4620,4 +4629,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_product_lots_with_variant
 ON product_lots(product_id, variant_id, lot_code)
 WHERE variant_id IS NOT NULL;
 COMMIT;
-

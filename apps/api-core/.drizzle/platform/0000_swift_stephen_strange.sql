@@ -647,6 +647,8 @@ ALTER TABLE "platform"."session_limits" ADD CONSTRAINT "session_limits_account_i
 ALTER TABLE "platform"."account_role_bindings" ADD CONSTRAINT "fk_arb_account" FOREIGN KEY ("account_id") REFERENCES "platform"."accounts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "platform"."account_role_bindings" ADD CONSTRAINT "fk_arb_role" FOREIGN KEY ("role_id") REFERENCES "platform"."roles"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_webhook_sub_business" ON "platform"."webhook_subscriptions" USING btree ("business_id" uuid_ops) WHERE (is_active = true);--> statement-breakpoint
+CREATE UNIQUE INDEX "accounts_email_unique" ON "platform"."accounts" USING btree ("email" text_ops) WHERE (email IS NOT NULL);--> statement-breakpoint
+CREATE UNIQUE INDEX "accounts_phone_unique" ON "platform"."accounts" USING btree ("phone" text_ops) WHERE (phone IS NOT NULL);--> statement-breakpoint
 CREATE UNIQUE INDEX "idx_accounts_google_id" ON "platform"."accounts" USING btree ("google_id" text_ops) WHERE (google_id IS NOT NULL);--> statement-breakpoint
 CREATE UNIQUE INDEX "idx_accounts_username" ON "platform"."accounts" USING btree ("username" text_ops) WHERE (username IS NOT NULL);--> statement-breakpoint
 CREATE INDEX "idx_auth_sessions_account" ON "platform"."auth_sessions" USING btree ("account_id" uuid_ops);--> statement-breakpoint

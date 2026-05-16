@@ -162,6 +162,10 @@ CREATE TABLE IF NOT EXISTS platform.businesses (
   CONSTRAINT chk_businesses_status CHECK (status = ANY(ARRAY['trial','active','suspended','closed']))
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS businesses_tax_code_unique
+  ON platform.businesses (LOWER(tax_code))
+  WHERE tax_code IS NOT NULL;
+
 INSERT INTO platform.businesses (business_code,schema_name,legal_name,brand_name,subscription_plan,status) VALUES
   ('acafe',   'business_acafe',   'ACafe Demo Company', 'ACafe',    'pro',        'active'),
   ('bar97',   'business_bar97',   'Bar 97 Co.,Ltd',     'Bar 97',   'standard',   'active'),

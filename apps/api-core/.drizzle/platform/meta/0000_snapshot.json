@@ -1116,6 +1116,40 @@
         }
       },
       "indexes": {
+        "accounts_email_unique": {
+          "name": "accounts_email_unique",
+          "columns": [
+            {
+              "expression": "email",
+              "asc": true,
+              "nulls": "last",
+              "opclass": "text_ops",
+              "isExpression": false
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "where": "(email IS NOT NULL)",
+          "with": {}
+        },
+        "accounts_phone_unique": {
+          "name": "accounts_phone_unique",
+          "columns": [
+            {
+              "expression": "phone",
+              "asc": true,
+              "nulls": "last",
+              "opclass": "text_ops",
+              "isExpression": false
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "where": "(phone IS NOT NULL)",
+          "with": {}
+        },
         "idx_accounts_google_id": {
           "name": "idx_accounts_google_id",
           "columns": [

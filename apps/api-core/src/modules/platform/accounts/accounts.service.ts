@@ -1,14 +1,126 @@
-import { Injectable, ConflictException, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, ForbiddenException, NotFoundException, BadRequestException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { eq, ilike, or, and, count, desc, type SQL } from 'drizzle-orm';
+import { Pool } from 'pg';
+import { eq, ilike, or, and, count, desc, ne, sql, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
+import { PlatformPermissionCacheService } from '@common/auth/platform-permission-cache.service';
 import { accounts, accountRoleBindings, roles, accountBusinesses, businesses } from '@schema/platform';
+import { env } from '@config/env';
 import type { CreateAccountDto } from './dto/create-account.dto';
 import type { ListAccountsDto } from './dto/list-accounts.dto';
 
 @Injectable()
-export class AccountsService {
-  constructor(private readonly platformDb: PlatformDbService) {}
+export class AccountsService implements OnModuleInit, OnModuleDestroy {
+  private adminPool: Pool;
+
+  constructor(
+    private readonly platformDb: PlatformDbService,
+    private readonly permissionCache: PlatformPermissionCacheService,
+  ) {}
+
+  onModuleInit() {
+    this.adminPool = new Pool({ connectionString: env.databaseUrl });
+  }
+
+  async onModuleDestroy() {
+    await this.adminPool.end();
+  }
+
+  private normalizeEmail(value?: string | null): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    const trimmed = value.trim().toLowerCase();
+    return trimmed ? trimmed : null;
+  }
+
+  private normalizePhone(value?: string | null): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    const normalized = value.trim().replace(/[\s.-]/g, '');
+    return normalized ? normalized : null;
+  }
+
+  private normalizeUsername(value?: string | null): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    const normalized = value.trim().toLowerCase();
+    return normalized ? normalized : null;
+  }
+
+  private quoteIdentifier(value: string): string {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+
+  private async ensureLoginUniqueGlobal(
+    fields: { username?: string | null; email?: string | null; phone?: string | null },
+    excludeAccountId?: string,
+  ) {
+    const filters: SQL[] = [];
+    if (fields.username) filters.push(sql`LOWER(${accounts.username}) = ${fields.username.toLowerCase()}`);
+    if (fields.email) filters.push(sql`LOWER(${accounts.email}) = ${fields.email.toLowerCase()}`);
+    if (fields.phone) filters.push(eq(accounts.phone, fields.phone));
+
+    if (filters.length > 0) {
+      const loginWhere = filters.length === 1 ? filters[0] : (or(...filters) as SQL);
+      const whereClause = excludeAccountId ? and(loginWhere, ne(accounts.id, excludeAccountId)) : loginWhere;
+      const [duplicateAccount] = await this.platformDb.db
+        .select({ username: accounts.username, email: accounts.email, phone: accounts.phone })
+        .from(accounts)
+        .where(whereClause)
+        .limit(1);
+
+      if (duplicateAccount) {
+        if (fields.username && duplicateAccount.username?.toLowerCase() === fields.username.toLowerCase()) {
+          throw new ConflictException('Username đã được sử dụng bởi tài khoản khác');
+        }
+        if (fields.email && duplicateAccount.email?.toLowerCase() === fields.email.toLowerCase()) {
+          throw new ConflictException('Email đã được sử dụng bởi tài khoản khác');
+        }
+        if (fields.phone && duplicateAccount.phone === fields.phone) {
+          throw new ConflictException('Số điện thoại đã được sử dụng bởi tài khoản khác');
+        }
+      }
+    }
+
+    if (!fields.username && !fields.email && !fields.phone) return;
+
+    const schemaRows = await this.platformDb.db.select({ schemaName: businesses.schemaName }).from(businesses);
+    for (const row of schemaRows) {
+      if (!row.schemaName) continue;
+      const schema = this.quoteIdentifier(row.schemaName);
+      const clauses: string[] = [];
+      const values: unknown[] = [];
+      const addValue = (value: unknown) => {
+        values.push(value);
+        return `$${values.length}`;
+      };
+
+      if (fields.username) clauses.push(`LOWER(username) = LOWER(${addValue(fields.username)})`);
+      if (fields.email) clauses.push(`LOWER(email) = LOWER(${addValue(fields.email)})`);
+      if (fields.phone) clauses.push(`phone = ${addValue(fields.phone)}`);
+      if (clauses.length === 0) continue;
+
+      const { rows } = await this.adminPool.query<{ username: string | null; email: string | null; phone: string | null }>(
+        `SELECT username, email, phone
+         FROM ${schema}.staff_members
+         WHERE ${clauses.join(' OR ')}
+         LIMIT 1`,
+        values,
+      );
+      const duplicateStaff = rows[0];
+      if (!duplicateStaff) continue;
+
+      if (fields.username && duplicateStaff.username?.toLowerCase() === fields.username.toLowerCase()) {
+        throw new ConflictException('Username đã được sử dụng bởi tài khoản khác');
+      }
+      if (fields.email && duplicateStaff.email?.toLowerCase() === fields.email.toLowerCase()) {
+        throw new ConflictException('Email đã được sử dụng bởi tài khoản khác');
+      }
+      if (fields.phone && duplicateStaff.phone === fields.phone) {
+        throw new ConflictException('Số điện thoại đã được sử dụng bởi tài khoản khác');
+      }
+    }
+  }
 
   async list(dto: ListAccountsDto, scopeAccountId?: string) {
     const { page, limit, status, search, isPlatformAdmin } = dto;
@@ -59,6 +171,30 @@ export class AccountsService {
     return {
       data: rows,
       meta: { page, limit, total: Number(total), totalPages: Math.ceil(Number(total) / limit) },
+    };
+  }
+
+  async summary(scopeAccountId?: string) {
+    const where = scopeAccountId ? eq(accounts.id, scopeAccountId) : undefined;
+    const [row] = await this.platformDb.db
+      .select({
+        total: count(),
+        active: sql<number>`COUNT(*) FILTER (WHERE ${accounts.status} = 'active')`,
+        locked: sql<number>`COUNT(*) FILTER (WHERE ${accounts.status} = 'locked')`,
+        disabled: sql<number>`COUNT(*) FILTER (WHERE ${accounts.status} = 'disabled')`,
+        platformAdmins: sql<number>`COUNT(*) FILTER (WHERE ${accounts.isPlatformAdmin} = true)`,
+        neverLoggedIn: sql<number>`COUNT(*) FILTER (WHERE ${accounts.lastLoginAt} IS NULL)`,
+      })
+      .from(accounts)
+      .where(where);
+
+    return {
+      total: Number(row?.total ?? 0),
+      active: Number(row?.active ?? 0),
+      locked: Number(row?.locked ?? 0),
+      disabled: Number(row?.disabled ?? 0),
+      platformAdmins: Number(row?.platformAdmins ?? 0),
+      neverLoggedIn: Number(row?.neverLoggedIn ?? 0),
     };
   }
 
@@ -126,25 +262,14 @@ export class AccountsService {
     const [account] = await db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, id)).limit(1);
     if (!account) throw new NotFoundException('Account not found');
 
-    if (dto.email) {
-      const [conflict] = await db
-        .select({ id: accounts.id })
-        .from(accounts)
-        .where(and(eq(accounts.email!, dto.email), eq(accounts.id, id)))
-        .limit(1);
-      // only conflict if another account owns this email
-      const [other] = await db
-        .select({ id: accounts.id })
-        .from(accounts)
-        .where(eq(accounts.email!, dto.email))
-        .limit(1);
-      if (other && other.id !== id) throw new ConflictException('Email already in use');
-    }
+    const normalizedEmail = this.normalizeEmail(dto.email);
+    const normalizedPhone = this.normalizePhone(dto.phone);
+    await this.ensureLoginUniqueGlobal({ email: normalizedEmail, phone: normalizedPhone }, id);
 
     const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
     if (dto.fullName !== undefined) patch.fullName = dto.fullName;
-    if (dto.email !== undefined) patch.email = dto.email;
-    if (dto.phone !== undefined) patch.phone = dto.phone;
+    if (dto.email !== undefined) patch.email = normalizedEmail ?? null;
+    if (dto.phone !== undefined) patch.phone = normalizedPhone ?? null;
 
     const doUpdate = (tx: typeof db) => tx.update(accounts).set(patch).where(eq(accounts.id, id));
     if (actorId) await this.platformDb.runWithActor(actorId, doUpdate);
@@ -185,6 +310,7 @@ export class AccountsService {
       .values({ accountId, roleId, scopeType, scopeId: scopeId ?? null })
       .returning({ id: accountRoleBindings.id });
 
+    this.permissionCache.delete(accountId);
     return { bindingId: binding.id };
   }
 
@@ -199,38 +325,31 @@ export class AccountsService {
     if (!binding) throw new NotFoundException('Role binding not found');
 
     await db.delete(accountRoleBindings).where(eq(accountRoleBindings.id, bindingId));
+    this.permissionCache.delete(accountId);
     return { success: true };
   }
 
   async create(dto: CreateAccountDto) {
     const db = this.platformDb.db;
-
-    const [byUsername] = await db
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(eq(accounts.username, dto.username))
-      .limit(1);
-    if (byUsername) throw new ConflictException('Username already exists');
-
-    if (dto.email) {
-      const [byEmail] = await db
-        .select({ id: accounts.id })
-        .from(accounts)
-        .where(eq(accounts.email!, dto.email))
-        .limit(1);
-      if (byEmail) throw new ConflictException('Email already exists');
-    }
+    const normalizedUsername = this.normalizeUsername(dto.username)!;
+    const normalizedEmail = this.normalizeEmail(dto.email);
+    const normalizedPhone = this.normalizePhone(dto.phone);
+    await this.ensureLoginUniqueGlobal({
+      username: normalizedUsername,
+      email: normalizedEmail,
+      phone: normalizedPhone,
+    });
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
     const [created] = await db
       .insert(accounts)
       .values({
-        username: dto.username,
+        username: normalizedUsername,
         password: passwordHash,
         fullName: dto.fullName,
-        email: dto.email,
-        phone: dto.phone,
+        email: normalizedEmail ?? null,
+        phone: normalizedPhone ?? null,
         isPlatformAdmin: dto.isPlatformAdmin ?? false,
         status: 'active',
       })

@@ -10,6 +10,7 @@ import type { SelectStoreDto } from './dto/select-store.dto';
 
 interface StaffRow {
   id: string;
+  username: string | null;
   email: string;
   full_name: string;
   display_name: string | null;
@@ -51,26 +52,30 @@ export class AuthService {
       .limit(1);
 
     if (!business || business.status !== 'active') {
-      throw new UnauthorizedException('Business not found or inactive');
+      throw new UnauthorizedException('Không tìm thấy doanh nghiệp hoặc doanh nghiệp chưa hoạt động');
     }
 
     const pool = this.businessDb.getPool(business.schemaName!);
+    const identifier = dto.identifier.trim();
     const { rows } = await pool.query<StaffRow>(
-      `SELECT id, email, full_name, display_name, role, is_active, employment_status, password_hash
+      `SELECT id, username, email, full_name, display_name, role, is_active, employment_status, password_hash
        FROM staff_members
-       WHERE email = $1 OR staff_code = $1 OR phone = $1
+       WHERE LOWER(email) = LOWER($1)
+          OR LOWER(username) = LOWER($1)
+          OR staff_code = $1
+          OR phone = $1
        LIMIT 1`,
-      [dto.identifier],
+      [identifier],
     );
 
     const staff = rows[0];
-    if (!staff) throw new UnauthorizedException('Invalid credentials');
+    if (!staff) throw new UnauthorizedException('Thông tin đăng nhập không đúng');
     if (!staff.is_active || staff.employment_status !== 'active') {
-      throw new UnauthorizedException('Account is inactive');
+      throw new UnauthorizedException('Tài khoản đã bị khóa hoặc không còn hoạt động');
     }
 
     const valid = await bcrypt.compare(dto.password, staff.password_hash);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    if (!valid) throw new UnauthorizedException('Thông tin đăng nhập không đúng');
 
     await pool.query(`UPDATE staff_members SET last_login_at = NOW() WHERE id = $1`, [staff.id]);
 
@@ -86,6 +91,7 @@ export class AuthService {
       accessToken: this.jwtService.sign(payload),
       staff: {
         id: staff.id,
+        username: staff.username,
         email: staff.email,
         fullName: staff.full_name,
         displayName: staff.display_name,
@@ -104,7 +110,7 @@ export class AuthService {
 
     const store = storeRows[0];
     if (!store || !store.is_active) {
-      throw new UnauthorizedException('Store not found or inactive');
+      throw new UnauthorizedException('Không tìm thấy cửa hàng hoặc cửa hàng chưa hoạt động');
     }
 
     const { rows: bindingRows } = await pool.query(
@@ -116,7 +122,7 @@ export class AuthService {
     );
 
     if (bindingRows.length === 0) {
-      throw new UnauthorizedException('No access to this store');
+      throw new UnauthorizedException('Tài khoản không có quyền truy cập cửa hàng này');
     }
 
     const payload: JwtPayload = {

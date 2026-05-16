@@ -832,6 +832,7 @@ export const businessesInPlatform = platform.table("businesses", {
 	legalAddress: text("legal_address"),
 	trialEndsAt: timestamp("trial_ends_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
+	uniqueIndex("businesses_tax_code_unique").using("btree", sql`lower((tax_code)::text)`).where(sql`(tax_code IS NOT NULL)`),
 	unique("businesses_business_code_key").on(table.businessCode),
 	unique("businesses_schema_name_key").on(table.schemaName),
 	check("businesses_business_code_not_null", sql`business_code IS NOT NULL`),

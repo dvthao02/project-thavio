@@ -1,0 +1,21 @@
+Code review task suggestions (2026-05-15)
+
+1) Typo fix task
+- Scope: docs/contracts/PLATFORM_ADMIN_UI.md
+- Problem: The endpoint table has a typo: "Endpoints de backend bo sung" should be "Endpoints de backend bo sung" with correct Vietnamese diacritics/wording, and multiple sections use inconsistent non-diacritic spellings (e.g., "Muc tieu", "Nguyen tac nghiep vu").
+- Task: Normalize Vietnamese spelling/diacritics and fix wording consistency in headings and table labels so product/legal terms are unambiguous.
+
+2) Bug fix task
+- Scope: apps/admin-web/lib/vn-address.ts
+- Problem: useDistricts/useWards use `enabled: !!provinceCode` and `enabled: !!districtCode`; code 0 would be treated as false and skip fetching.
+- Task: Replace truthy checks with explicit null/undefined checks (`provinceCode != null`, `districtCode != null`) and add tests for code=0 edge case.
+
+3) Code comment/docs mismatch task
+- Scope: apps/api-core/src/middlewares/platform.middleware.ts and docs/contracts/PLATFORM_ADMIN_UI.md
+- Problem: Middleware bypasses only `/platform/auth/login`, but contract expects additional public catalog endpoints for locations.
+- Task: Align middleware allowlist and API docs: either implement public/authorized behavior for `/platform/locations/*` and document auth requirements clearly, or adjust docs to match current auth behavior.
+
+4) Testing process improvement task
+- Scope: repository CI/testing workflow
+- Problem: No focused regression tests appear to protect permission middleware behavior and admin location hooks.
+- Task: Add a lightweight CI check set: (a) NestJS e2e tests for platform middleware/guard allowlist + scope enforcement, (b) frontend unit tests for vn-address hooks with edge inputs, and (c) run both in PR pipeline with fast fail summary.

@@ -215,6 +215,8 @@ export const accountsInPlatform = platform.table("accounts", {
 	googleId: varchar("google_id", { length: 150 }),
 	authProvider: varchar("auth_provider", { length: 20 }).default('local').notNull(),
 }, (table) => [
+	uniqueIndex("accounts_email_unique").using("btree", table.email.asc().nullsLast().op("text_ops")).where(sql`(email IS NOT NULL)`),
+	uniqueIndex("accounts_phone_unique").using("btree", table.phone.asc().nullsLast().op("text_ops")).where(sql`(phone IS NOT NULL)`),
 	uniqueIndex("idx_accounts_google_id").using("btree", table.googleId.asc().nullsLast().op("text_ops")).where(sql`(google_id IS NOT NULL)`),
 	uniqueIndex("idx_accounts_username").using("btree", table.username.asc().nullsLast().op("text_ops")).where(sql`(username IS NOT NULL)`),
 	unique("accounts_username_key").on(table.username),

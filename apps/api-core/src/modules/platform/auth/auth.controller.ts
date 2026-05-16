@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import { randomUUID } from 'crypto';
 import { AuthService } from './auth.service';
 import { LoginSchema } from './dto/login.dto';
+import { resolvePlatformContext, type PlatformRequest } from '@common/auth/platform-context';
 
 @Controller('platform/auth')
 export class AuthController {
@@ -22,10 +23,17 @@ export class AuthController {
   }
 
   @Post('logout')
-  logout(@Req() req: Request & { platformUser?: any }) {
+  logout(@Req() req: PlatformRequest) {
+    const ctx = resolvePlatformContext(req);
     const requestId = req.get('x-request-id') ?? randomUUID();
-    const sessionId = req.platformUser?.sid ?? req.platformUser?.jti ?? req.get('x-session-id') ?? undefined;
-    return this.authService.logout(req.platformUser.sub, {
+    const tokenSessionId =
+      typeof req.platformUser?.sid === 'string'
+        ? req.platformUser.sid
+        : typeof req.platformUser?.jti === 'string'
+          ? req.platformUser.jti
+          : undefined;
+    const sessionId = tokenSessionId ?? req.get('x-session-id') ?? undefined;
+    return this.authService.logout(ctx.accountId, {
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
       requestId,
@@ -34,7 +42,8 @@ export class AuthController {
   }
 
   @Get('me')
-  getMe(@Req() req: Request & { platformUser?: any }) {
-    return this.authService.getMe(req.platformUser.sub);
+  getMe(@Req() req: PlatformRequest) {
+    const ctx = resolvePlatformContext(req);
+    return this.authService.getMe(ctx.accountId, ctx.permissions);
   }
 }

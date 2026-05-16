@@ -119,13 +119,14 @@ export class AuditLogsService {
       const term = `%${searchTerm}%`;
       filters.push(sql`(${platformAuditLog.newData}::text ILIKE ${term} OR ${platformAuditLog.oldData}::text ILIKE ${term})`);
     }
-    // Hide technical login heartbeat updates from data-change view.
+    // Hide technical login heartbeat updates in data-change view.
+    // Only suppress rows where changed fields are limited to last_login_at / updated_at.
     filters.push(sql`NOT (
       ${platformAuditLog.tableName} = 'accounts'
       AND ${platformAuditLog.operation} = 'UPDATE'
       AND ${platformAuditLog.changedFields} IS NOT NULL
-      AND cardinality(${platformAuditLog.changedFields}) = 1
-      AND ${platformAuditLog.changedFields}[1] = 'last_login_at'
+      AND ${platformAuditLog.changedFields} && ARRAY['last_login_at']::text[]
+      AND ${platformAuditLog.changedFields} <@ ARRAY['last_login_at', 'updated_at']::text[]
     )`);
     if (from) filters.push(gte(platformAuditLog.eventTime, from));
     if (to) filters.push(lte(platformAuditLog.eventTime, to));

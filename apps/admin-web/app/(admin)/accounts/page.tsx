@@ -23,6 +23,15 @@ interface ListResponse {
   meta: { page: number; limit: number; total: number; totalPages: number };
 }
 
+interface AccountsSummary {
+  total: number;
+  active: number;
+  locked: number;
+  disabled: number;
+  platformAdmins: number;
+  neverLoggedIn: number;
+}
+
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
   active:   { label: 'Hoạt động',   cls: 'bg-emerald-500/10 text-emerald-700' },
   locked:   { label: 'Đã khóa',     cls: 'bg-red-500/10 text-red-700' },
@@ -111,25 +120,26 @@ export default function AccountsPage() {
     placeholderData: (prev) => prev,
   });
 
-  const { data: summaryData } = useQuery<ListResponse>({
+  const { data: summaryData } = useQuery<AccountsSummary>({
     queryKey: ['accounts-summary'],
-    queryFn: () =>
-      api.get('/platform/accounts', {
-        params: { page: 1, limit: 100 },
-      }).then((r) => r.data),
+    queryFn: () => api.get('/platform/accounts/summary').then((r) => r.data),
     placeholderData: (prev) => prev,
   });
 
   const updateStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       api.patch(`/platform/accounts/${id}/status`, { status }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['accounts-summary'] });
+    },
   });
 
   const createMut = useMutation({
     mutationFn: (body: typeof form) => api.post('/platform/accounts', body).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['accounts-summary'] });
       closeCreate();
     },
   });
@@ -137,13 +147,13 @@ export default function AccountsPage() {
   const closeCreate = () => { setCreateOpen(false); setForm(DEFAULT_FORM); };
 
   const total = data?.meta.total ?? 0;
-  const summaryAccounts = summaryData?.data ?? data?.data ?? [];
-  const summaryTotal = summaryData?.meta.total ?? total;
-  const activeCount = summaryAccounts.filter((a) => a.status === 'active').length;
-  const lockedCount = summaryAccounts.filter((a) => a.status === 'locked').length;
-  const disabledCount = summaryAccounts.filter((a) => a.status === 'disabled').length;
-  const adminCount = summaryAccounts.filter((a) => a.isPlatformAdmin).length;
-  const neverLoggedInCount = summaryAccounts.filter((a) => !a.lastLoginAt).length;
+  const pageAccounts = data?.data ?? [];
+  const summaryTotal = summaryData?.total ?? total;
+  const activeCount = summaryData?.active ?? pageAccounts.filter((a) => a.status === 'active').length;
+  const lockedCount = summaryData?.locked ?? pageAccounts.filter((a) => a.status === 'locked').length;
+  const disabledCount = summaryData?.disabled ?? pageAccounts.filter((a) => a.status === 'disabled').length;
+  const adminCount = summaryData?.platformAdmins ?? pageAccounts.filter((a) => a.isPlatformAdmin).length;
+  const neverLoggedInCount = summaryData?.neverLoggedIn ?? pageAccounts.filter((a) => !a.lastLoginAt).length;
 
   return (
     <div className="space-y-5">

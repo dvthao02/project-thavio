@@ -43,6 +43,21 @@ interface ListResponse {
   meta: { page: number; limit: number; total: number; totalPages: number };
 }
 
+interface BusinessSummary {
+  total: number;
+  access: {
+    active: number;
+    pending: number;
+    suspended: number;
+    inactive: number;
+  };
+  subscription: {
+    trialing: number;
+    expiring: number;
+    pastDue: number;
+  };
+}
+
 interface AccountOption {
   id: string;
   username: string;
@@ -225,12 +240,27 @@ export default function BusinessesPage() {
     placeholderData: (previous) => previous,
   });
 
+  const { data: summaryData, refetch: refetchSummary } = useQuery<BusinessSummary>({
+    queryKey: ['businesses-summary', { search, status, assigneeId }],
+    queryFn: () =>
+      api
+        .get('/platform/businesses/summary', {
+          params: {
+            search: search || undefined,
+            status: status || undefined,
+            assigneeId: assigneeId || undefined,
+          },
+        })
+        .then((res) => res.data),
+    placeholderData: (previous) => previous,
+  });
+
   const { data: accountsData } = useQuery<AccountsResponse>({
     queryKey: ['business-assignee-options'],
     queryFn: () =>
       api
         .get('/platform/accounts', {
-          params: { page: 1, limit: 100 },
+          params: { page: 1, limit: 100, status: 'active', isPlatformAdmin: true },
         })
         .then((res) => res.data),
     placeholderData: (previous) => previous,
@@ -264,15 +294,15 @@ export default function BusinessesPage() {
 
   const stats = useMemo(
     () => ({
-      total: data?.meta.total ?? rows.length,
-      active: rows.filter((row) => row.accessStatus === 'active').length,
-      trialing: rows.filter((row) => row.subscriptionStatus === 'trialing').length,
-      expiring: rows.filter(
+      total: summaryData?.total ?? data?.meta.total ?? rows.length,
+      active: summaryData?.access.active ?? rows.filter((row) => row.accessStatus === 'active').length,
+      trialing: summaryData?.subscription.trialing ?? rows.filter((row) => row.subscriptionStatus === 'trialing').length,
+      expiring: summaryData?.subscription.expiring ?? rows.filter(
         (row) => row.subscriptionStatus === 'trialing' && (row.trialDaysLeft ?? 99) >= 0 && (row.trialDaysLeft ?? 99) <= 2,
       ).length,
-      suspended: rows.filter((row) => row.accessStatus === 'suspended').length,
+      suspended: summaryData?.access.suspended ?? rows.filter((row) => row.accessStatus === 'suspended').length,
     }),
-    [data?.meta.total, rows],
+    [data?.meta.total, rows, summaryData],
   );
 
   const total = data?.meta.total ?? 0;
@@ -294,7 +324,10 @@ export default function BusinessesPage() {
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              onClick={() => refetch()}
+              onClick={() => {
+                refetch();
+                refetchSummary();
+              }}
               className="inline-flex items-center gap-2 rounded-md border border-input px-3 py-2 text-sm font-medium transition hover:bg-muted"
             >
               <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} />

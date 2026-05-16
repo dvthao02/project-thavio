@@ -10,6 +10,7 @@ import {
   Store, Trash2, User, UserCheck, Users, X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { getApiErrorMessage } from '@/lib/api-error';
 import { useAuthStore } from '@/stores/auth.store';
 import { TIMEZONES, CURRENCIES } from '@/lib/biz-constants';
 
@@ -84,6 +85,7 @@ interface AccountOption {
 interface StaffMember {
   id: string;
   staffCode: string;
+  username: string | null;
   fullName: string;
   email: string | null;
   phone: string | null;
@@ -93,8 +95,16 @@ interface StaffMember {
   primaryStoreId: string | null;
   storeName: string | null;
   storeCode: string | null;
+  storeAssignments: StaffStoreAssignment[];
   lastLoginAt: string | null;
   createdAt: string;
+}
+
+interface StaffStoreAssignment {
+  storeId: string;
+  storeName: string;
+  storeCode: string;
+  role: string;
 }
 
 // ── Config ──────────────────────────────────────────────────────────────────────
@@ -126,6 +136,9 @@ const PLAN_CLS: Record<string, string> = {
 const ACCESS_LEVEL_LABEL: Record<string, string> = {
   owner:   'Chủ sở hữu',
   admin:   'Quản trị',
+  manager: 'Quản lý',
+  staff:   'Nhân viên',
+  auditor: 'Kiểm soát',
   support: 'Hỗ trợ',
   viewer:  'Xem',
 };
@@ -133,11 +146,23 @@ const ACCESS_LEVEL_LABEL: Record<string, string> = {
 const ACCESS_LEVEL_CLS: Record<string, string> = {
   owner:   'bg-amber-500/10 text-amber-700',
   admin:   'bg-primary/10 text-primary',
+  manager: 'bg-violet-500/10 text-violet-700',
+  staff:   'bg-cyan-500/10 text-cyan-700',
+  auditor: 'bg-slate-500/10 text-slate-700',
   support: 'bg-cyan-500/10 text-cyan-700',
   viewer:  'bg-slate-500/10 text-slate-600',
 };
 
+const STORE_TYPE_LABEL: Record<string, string> = {
+  retail:    'Bán lẻ',
+  fnb:       'F&B',
+  kiosk:     'Kiosk',
+  warehouse: 'Kho',
+  office:    'Văn phòng',
+};
+
 const STAFF_ROLE_LABEL: Record<string, string> = {
+  owner:     'Chủ sở hữu',
   admin:     'Quản trị viên',
   cashier:   'Thu ngân',
   inventory: 'Thủ kho',
@@ -155,9 +180,39 @@ const STAFF_ROLES = [
   { value: 'staff',     label: 'Nhân viên' },
 ];
 
+const STAFF_ASSIGNMENT_ROLES = [
+  { value: 'owner', label: 'Chủ sở hữu' },
+  ...STAFF_ROLES,
+];
+
 const DEFAULT_STAFF_FORM = {
-  fullName: '', email: '', phone: '', staffCode: '',
+  fullName: '', username: '', email: '', phone: '', staffCode: '',
   role: 'cashier', password: '', confirmPassword: '',
+};
+
+const STORE_TYPES = [
+  { value: 'retail',    label: 'Cửa hàng bán lẻ' },
+  { value: 'fnb',       label: 'F&B (Nhà hàng / Quán)' },
+  { value: 'kiosk',     label: 'Kiosk' },
+  { value: 'warehouse', label: 'Kho' },
+  { value: 'office',    label: 'Văn phòng' },
+];
+
+const DEFAULT_STORE_FORM = {
+  storeName: '', storeCode: '', storeType: 'retail',
+  phone: '', email: '', address: '', district: '', city: '',
+};
+
+const DEFAULT_STAFF_EDIT_FORM = {
+  fullName: '',
+  username: '',
+  email: '',
+  phone: '',
+  staffCode: '',
+  password: '',
+  primaryStoreId: '',
+  isActive: true,
+  storeRoles: [] as { storeId: string; role: string }[],
 };
 
 // ── Hooks ──────────────────────────────────────────────────────────────────────
@@ -193,6 +248,14 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function isStaffAssignedToStore(member: StaffMember, storeId: string) {
+  return member.primaryStoreId === storeId || (member.storeAssignments ?? []).some((item) => item.storeId === storeId);
+}
+
+function getStaffRoleForStore(member: StaffMember, storeId: string) {
+  return (member.storeAssignments ?? []).find((item) => item.storeId === storeId)?.role ?? member.role;
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function BusinessDetailPage() {
@@ -214,7 +277,11 @@ export default function BusinessDetailPage() {
   const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set());
   const [addStaffStoreId, setAddStaffStoreId] = useState<string | null>(null);
   const [staffForm, setStaffForm] = useState(DEFAULT_STAFF_FORM);
+  const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
+  const [staffEditForm, setStaffEditForm] = useState(DEFAULT_STAFF_EDIT_FORM);
   const [showStaffPwd, setShowStaffPwd] = useState(false);
+  const [addStoreOpen, setAddStoreOpen] = useState(false);
+  const [storeForm, setStoreForm] = useState(DEFAULT_STORE_FORM);
 
   const [editForm, setEditForm] = useState({
     legalName: '', brandName: '', email: '', phone: '',
@@ -225,6 +292,8 @@ export default function BusinessDetailPage() {
   useEscape(suspendConfirm !== null, () => setSuspendConfirm(null));
   useEscape(addAssigneeOpen, () => { setAddAssigneeOpen(false); setAssigneeSearch(''); });
   useEscape(addStaffStoreId !== null, () => { setAddStaffStoreId(null); setStaffForm(DEFAULT_STAFF_FORM); });
+  useEscape(editingStaff !== null, () => { setEditingStaff(null); setStaffEditForm(DEFAULT_STAFF_EDIT_FORM); });
+  useEscape(addStoreOpen, () => { setAddStoreOpen(false); setStoreForm(DEFAULT_STORE_FORM); });
 
   // ── Queries ──
 
@@ -252,10 +321,16 @@ export default function BusinessDetailPage() {
   });
 
   const { data: accountsData } = useQuery<{ data: AccountOption[] }>({
-    queryKey: ['accounts', { search: assigneeSearch, page: 1, status: 'active' }],
+    queryKey: ['accounts', { search: assigneeSearch, page: 1, status: 'active', isPlatformAdmin: true }],
     queryFn: () =>
       api.get('/platform/accounts', {
-        params: { search: assigneeSearch || undefined, page: 1, limit: 20, status: 'active' },
+        params: {
+          search: assigneeSearch || undefined,
+          page: 1,
+          limit: 20,
+          status: 'active',
+          isPlatformAdmin: true,
+        },
       }).then((r) => r.data),
     enabled: addAssigneeOpen,
   });
@@ -283,7 +358,7 @@ export default function BusinessDetailPage() {
 
   const addAssigneeMut = useMutation({
     mutationFn: (accountId: string) =>
-      api.post(`/platform/businesses/${id}/assignees`, { accountId, accessLevel: 'support' }).then((r) => r.data),
+      api.post(`/platform/businesses/${id}/assignees`, { accountId, accessLevel: 'admin' }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business-assignees', id] });
       setAddAssigneeOpen(false);
@@ -317,6 +392,28 @@ export default function BusinessDetailPage() {
     },
   });
 
+  const updateStaffMut = useMutation({
+    mutationFn: ({ staffId, body }: { staffId: string; body: object }) =>
+      api.patch(`/platform/businesses/${id}/staff/${staffId}`, body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['business-staff', id] });
+      qc.invalidateQueries({ queryKey: ['business-stores', id] });
+      setEditingStaff(null);
+      setStaffEditForm(DEFAULT_STAFF_EDIT_FORM);
+    },
+  });
+
+  const createStoreMut = useMutation({
+    mutationFn: (body: object) =>
+      api.post(`/platform/businesses/${id}/stores`, body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['business-stores', id] });
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+      setAddStoreOpen(false);
+      setStoreForm(DEFAULT_STORE_FORM);
+    },
+  });
+
   // ── Derived ──
 
   const openEdit = () => {
@@ -336,8 +433,63 @@ export default function BusinessDetailPage() {
     setEditOpen(true);
   };
 
+  const openEditStaff = (member: StaffMember, currentStoreId?: string) => {
+    const currentAssignments =
+      member.storeAssignments && member.storeAssignments.length > 0
+        ? member.storeAssignments.map((item) => ({ storeId: item.storeId, role: item.role }))
+        : member.primaryStoreId
+          ? [{ storeId: member.primaryStoreId, role: member.role }]
+          : [];
+    const primaryStoreId =
+      currentStoreId && currentAssignments.some((item) => item.storeId === currentStoreId)
+        ? currentStoreId
+        : member.primaryStoreId ?? currentAssignments[0]?.storeId ?? '';
+
+    setEditingStaff(member);
+    setStaffEditForm({
+      fullName: member.fullName,
+      username: member.username ?? '',
+      email: member.email ?? '',
+      phone: member.phone ?? '',
+      staffCode: member.staffCode,
+      password: '',
+      primaryStoreId,
+      isActive: member.isActive,
+      storeRoles: currentAssignments,
+    });
+  };
+
+  const toggleStaffStoreRole = (storeId: string, checked: boolean) => {
+    setStaffEditForm((current) => {
+      if (checked) {
+        if (current.storeRoles.some((item) => item.storeId === storeId)) return current;
+        return {
+          ...current,
+          primaryStoreId: current.primaryStoreId || storeId,
+          storeRoles: [...current.storeRoles, { storeId, role: 'staff' }],
+        };
+      }
+
+      const nextRoles = current.storeRoles.filter((item) => item.storeId !== storeId);
+      return {
+        ...current,
+        primaryStoreId: current.primaryStoreId === storeId ? nextRoles[0]?.storeId ?? '' : current.primaryStoreId,
+        storeRoles: nextRoles,
+      };
+    });
+  };
+
+  const setStaffStoreRole = (storeId: string, role: string) => {
+    setStaffEditForm((current) => ({
+      ...current,
+      storeRoles: current.storeRoles.map((item) => (item.storeId === storeId ? { ...item, role } : item)),
+    }));
+  };
+
   const existingAssigneeIds = new Set((assigneesData?.data ?? []).map((a) => a.accountId));
-  const availableAccounts = (accountsData?.data ?? []).filter((a) => !existingAssigneeIds.has(a.id));
+  const availableAccounts = (accountsData?.data ?? [])
+    .filter((a) => !existingAssigneeIds.has(a.id))
+    .sort((a, b) => Number(b.isPlatformAdmin) - Number(a.isPlatformAdmin));
 
   // ── Loading / Error states ──
 
@@ -506,16 +658,44 @@ export default function BusinessDetailPage() {
       {/* Tab: Cửa hàng */}
       {tab === 'stores' && (
         <div className="space-y-3">
+          {/* Tab header with add button */}
+          {canUpdate && storesData && storesData.data.length > 0 && (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">{storesData.data.length} cửa hàng</p>
+              <button
+                type="button"
+                onClick={() => { setStoreForm(DEFAULT_STORE_FORM); setAddStoreOpen(true); }}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition"
+              >
+                <Plus size={14} /> Thêm cửa hàng
+              </button>
+            </div>
+          )}
+
           {!storesData ? (
             <div className="rounded-lg border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">Đang tải…</div>
           ) : storesData.data.length === 0 ? (
-            <div className="rounded-lg border border-border bg-card px-5 py-12 text-center">
-              <Store size={32} className="mx-auto mb-2 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">Chưa có cửa hàng nào</p>
+            <div className="rounded-lg border border-border bg-card px-5 py-14 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/8">
+                <Store size={26} className="text-primary/60" />
+              </div>
+              <p className="text-sm font-medium text-foreground">Doanh nghiệp chưa có cửa hàng nào</p>
+              <p className="mt-1 text-xs text-muted-foreground max-w-xs mx-auto">
+                Tạo cửa hàng đầu tiên để bắt đầu thêm nhân viên và vận hành POS.
+              </p>
+              {canUpdate && (
+                <button
+                  type="button"
+                  onClick={() => { setStoreForm(DEFAULT_STORE_FORM); setAddStoreOpen(true); }}
+                  className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition"
+                >
+                  <Plus size={15} /> Tạo cửa hàng đầu tiên
+                </button>
+              )}
             </div>
           ) : (
             storesData.data.map((s) => {
-              const storeStaff = (staffData?.data ?? []).filter((m) => m.primaryStoreId === s.id);
+              const storeStaff = (staffData?.data ?? []).filter((m) => isStaffAssignedToStore(m, s.id));
               const expanded = expandedStores.has(s.id);
               return (
                 <div key={s.id} className="rounded-lg border border-border bg-card overflow-hidden">
@@ -547,7 +727,7 @@ export default function BusinessDetailPage() {
                           <span className="flex items-center gap-1"><Phone size={11} />{s.phone}</span>
                         )}
                         <span className="flex items-center gap-1"><Users size={11} />{storeStaff.length} nhân viên</span>
-                        <span className="capitalize text-muted-foreground/70">{s.storeType}</span>
+                        <span className="text-muted-foreground/70">{STORE_TYPE_LABEL[s.storeType] ?? s.storeType}</span>
                       </div>
                     </div>
                     {canUpdate && (
@@ -574,7 +754,7 @@ export default function BusinessDetailPage() {
                         </div>
                       ) : (
                         <div className="overflow-x-auto">
-                        <table className="w-full min-w-[640px] text-sm">
+                        <table className="w-full min-w-[760px] text-sm">
                           <thead>
                             <tr className="bg-muted/30">
                               <th className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground">Nhân viên</th>
@@ -583,6 +763,7 @@ export default function BusinessDetailPage() {
                               <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Chức vụ</th>
                               <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Đăng nhập cuối</th>
                               <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Trạng thái</th>
+                              {canUpdate && <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground" />}
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
@@ -601,6 +782,11 @@ export default function BusinessDetailPage() {
                                 </td>
                                 <td className="px-4 py-3">
                                   <div className="flex flex-col gap-0.5">
+                                    {m.username && (
+                                      <span className="inline-flex items-center gap-1 text-xs text-foreground">
+                                        @{m.username}
+                                      </span>
+                                    )}
                                     {m.phone && (
                                       <span className="inline-flex items-center gap-1 text-xs text-foreground">
                                         <Phone size={11} className="text-emerald-600" />{m.phone}
@@ -611,14 +797,14 @@ export default function BusinessDetailPage() {
                                         <Mail size={11} />{m.email}
                                       </span>
                                     )}
-                                    {!m.phone && !m.email && (
+                                    {!m.username && !m.phone && !m.email && (
                                       <span className="text-xs text-muted-foreground/60">Chỉ mã NV</span>
                                     )}
                                   </div>
                                 </td>
                                 <td className="px-4 py-3">
                                   <span className="text-xs text-muted-foreground">
-                                    {STAFF_ROLE_LABEL[m.role] ?? m.role}
+                                    {STAFF_ROLE_LABEL[getStaffRoleForStore(m, s.id)] ?? getStaffRoleForStore(m, s.id)}
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 text-xs text-muted-foreground">
@@ -631,6 +817,17 @@ export default function BusinessDetailPage() {
                                     m.isActive ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
                                   }`}>{m.isActive ? 'Hoạt động' : 'Ngừng'}</span>
                                 </td>
+                                {canUpdate && (
+                                  <td className="px-4 py-3 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditStaff(m, s.id)}
+                                      className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                    >
+                                      <Edit2 size={12} /> Sửa
+                                    </button>
+                                  </td>
+                                )}
                               </tr>
                             ))}
                           </tbody>
@@ -762,7 +959,7 @@ export default function BusinessDetailPage() {
               />
               {extendTrialMut.isError && (
                 <p className="mt-2 text-xs text-destructive">
-                  {(extendTrialMut.error as any)?.response?.data?.message ?? 'Lỗi khi gia hạn.'}
+                  {getApiErrorMessage(extendTrialMut.error, 'Lỗi khi gia hạn.')}
                 </p>
               )}
             </div>
@@ -922,7 +1119,7 @@ export default function BusinessDetailPage() {
             </div>
             {updateMut.isError && (
               <p className="mt-3 text-xs text-destructive">
-                {(updateMut.error as any)?.response?.data?.message ?? 'Lỗi khi cập nhật.'}
+                {getApiErrorMessage(updateMut.error, 'Lỗi khi cập nhật.')}
               </p>
             )}
             <div className="mt-5 flex justify-end gap-2">
@@ -964,7 +1161,7 @@ export default function BusinessDetailPage() {
             </div>
             {statusMut.isError && (
               <p className="mb-3 text-xs text-destructive">
-                {(statusMut.error as any)?.response?.data?.message ?? 'Lỗi khi cập nhật.'}
+                {getApiErrorMessage(statusMut.error, 'Lỗi khi cập nhật.')}
               </p>
             )}
             <div className="flex justify-end gap-2">
@@ -1006,11 +1203,19 @@ export default function BusinessDetailPage() {
                 </Field>
 
                 <div className="grid grid-cols-2 gap-3">
+                  <Field label="Username">
+                    <input className={INPUT} value={staffForm.username}
+                      onChange={(e) => setStaffForm((f) => ({ ...f, username: e.target.value }))}
+                      placeholder="nguyenvana" />
+                  </Field>
                   <Field label="Số điện thoại (đăng nhập)">
                     <input className={INPUT} value={staffForm.phone}
                       onChange={(e) => setStaffForm((f) => ({ ...f, phone: e.target.value }))}
                       placeholder="0901234567" />
                   </Field>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
                   <Field label="Email (đăng nhập)">
                     <input type="email" className={INPUT} value={staffForm.email}
                       onChange={(e) => setStaffForm((f) => ({ ...f, email: e.target.value }))}
@@ -1047,13 +1252,13 @@ export default function BusinessDetailPage() {
                 </Field>
 
                 <div className="rounded-md bg-sky-500/5 border border-sky-200 px-3 py-2 text-xs text-sky-700">
-                  Nhân viên đăng nhập bằng: <strong>SĐT</strong>, <strong>email</strong>, hoặc <strong>mã NV</strong> + mật khẩu
+                  Nhân viên đăng nhập bằng: <strong>username</strong>, <strong>SĐT</strong>, <strong>email</strong>, hoặc <strong>mã NV</strong> + mật khẩu
                 </div>
               </div>
 
               {createStaffMut.isError && (
                 <p className="mt-3 text-xs text-destructive">
-                  {(createStaffMut.error as any)?.response?.data?.message ?? 'Lỗi khi thêm nhân viên.'}
+                  {getApiErrorMessage(createStaffMut.error, 'Lỗi khi thêm nhân viên.')}
                 </p>
               )}
 
@@ -1065,6 +1270,7 @@ export default function BusinessDetailPage() {
                     if (!staffForm.fullName || !staffForm.password) return;
                     createStaffMut.mutate({
                       fullName: staffForm.fullName,
+                      ...(staffForm.username && { username: staffForm.username }),
                       ...(staffForm.email && { email: staffForm.email }),
                       ...(staffForm.phone && { phone: staffForm.phone }),
                       ...(staffForm.staffCode && { staffCode: staffForm.staffCode }),
@@ -1084,6 +1290,336 @@ export default function BusinessDetailPage() {
         );
       })()}
 
+      {/* Modal: Edit Staff */}
+      {editingStaff && canUpdate && (() => {
+        const stores = storesData?.data ?? [];
+        const selectedStoreIds = new Set(staffEditForm.storeRoles.map((item) => item.storeId));
+        const canSaveStaff =
+          staffEditForm.fullName.trim().length > 0 &&
+          staffEditForm.staffCode.trim().length > 0 &&
+          staffEditForm.primaryStoreId.length > 0 &&
+          staffEditForm.storeRoles.length > 0;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-2xl rounded-lg border border-border bg-background p-6 shadow-xl">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground">Sửa nhân viên</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{editingStaff.fullName}</p>
+                </div>
+                <button
+                  onClick={() => { setEditingStaff(null); setStaffEditForm(DEFAULT_STAFF_EDIT_FORM); }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="Họ và tên *">
+                    <input
+                      className={INPUT}
+                      value={staffEditForm.fullName}
+                      onChange={(e) => setStaffEditForm((f) => ({ ...f, fullName: e.target.value }))}
+                      autoFocus
+                    />
+                  </Field>
+                  <Field label="Mã nhân viên *">
+                    <input
+                      className={INPUT}
+                      value={staffEditForm.staffCode}
+                      onChange={(e) => setStaffEditForm((f) => ({ ...f, staffCode: e.target.value }))}
+                    />
+                  </Field>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="Username">
+                    <input
+                      className={INPUT}
+                      value={staffEditForm.username}
+                      onChange={(e) => setStaffEditForm((f) => ({ ...f, username: e.target.value }))}
+                      placeholder="nguyenvana"
+                    />
+                  </Field>
+                  <Field label="Số điện thoại">
+                    <input
+                      className={INPUT}
+                      value={staffEditForm.phone}
+                      onChange={(e) => setStaffEditForm((f) => ({ ...f, phone: e.target.value }))}
+                      placeholder="0901234567"
+                    />
+                  </Field>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="Email">
+                    <input
+                      type="email"
+                      className={INPUT}
+                      value={staffEditForm.email}
+                      onChange={(e) => setStaffEditForm((f) => ({ ...f, email: e.target.value }))}
+                      placeholder="nv@business.vn"
+                    />
+                  </Field>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="Trạng thái">
+                    <select
+                      className={INPUT}
+                      value={staffEditForm.isActive ? 'active' : 'inactive'}
+                      onChange={(e) => setStaffEditForm((f) => ({ ...f, isActive: e.target.value === 'active' }))}
+                    >
+                      <option value="active">Hoạt động</option>
+                      <option value="inactive">Ngừng hoạt động</option>
+                    </select>
+                  </Field>
+                  <Field label="Mật khẩu mới">
+                    <input
+                      type="password"
+                      className={INPUT}
+                      value={staffEditForm.password}
+                      onChange={(e) => setStaffEditForm((f) => ({ ...f, password: e.target.value }))}
+                      placeholder="Để trống nếu không đổi"
+                    />
+                  </Field>
+                </div>
+
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Cửa hàng và vai trò *</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Chọn một hoặc nhiều cửa hàng. Mỗi cửa hàng có thể dùng vai trò riêng cho cùng nhân viên.
+                    </p>
+                  </div>
+                  <div className="overflow-hidden rounded-md border border-border">
+                    {stores.map((store) => {
+                      const assigned = selectedStoreIds.has(store.id);
+                      const role = staffEditForm.storeRoles.find((item) => item.storeId === store.id)?.role ?? 'staff';
+                      return (
+                        <div key={store.id} className="grid gap-3 border-b border-border px-3 py-3 last:border-b-0 md:grid-cols-[1fr_130px_170px] md:items-center">
+                          <label className="flex min-w-0 items-start gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={assigned}
+                              onChange={(e) => toggleStaffStoreRole(store.id, e.target.checked)}
+                              className="mt-1"
+                            />
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium text-foreground">{store.storeName}</span>
+                              <span className="text-xs text-muted-foreground">{store.storeCode}</span>
+                            </span>
+                          </label>
+                          <label className={`flex items-center gap-2 text-xs ${assigned ? 'text-foreground' : 'text-muted-foreground/60'}`}>
+                            <input
+                              type="radio"
+                              name="primary-store"
+                              checked={staffEditForm.primaryStoreId === store.id}
+                              disabled={!assigned}
+                              onChange={() => setStaffEditForm((f) => ({ ...f, primaryStoreId: store.id }))}
+                            />
+                            Cửa hàng chính
+                          </label>
+                          <select
+                            className={INPUT}
+                            value={role}
+                            disabled={!assigned}
+                            onChange={(e) => setStaffStoreRole(store.id, e.target.value)}
+                          >
+                            {STAFF_ASSIGNMENT_ROLES.map((item) => (
+                              <option key={item.value} value={item.value}>{item.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {updateStaffMut.isError && (
+                <p className="mt-3 text-xs text-destructive">
+                  {getApiErrorMessage(updateStaffMut.error, 'Lỗi khi cập nhật nhân viên.')}
+                </p>
+              )}
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  onClick={() => { setEditingStaff(null); setStaffEditForm(DEFAULT_STAFF_EDIT_FORM); }}
+                  className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={() => {
+                    if (!canSaveStaff || !editingStaff) return;
+                    const storeRoles = staffEditForm.storeRoles.map((item) => ({ storeId: item.storeId, role: item.role }));
+                    const primaryRole = storeRoles.find((item) => item.storeId === staffEditForm.primaryStoreId)?.role ?? storeRoles[0]?.role ?? 'staff';
+                    const memberRole = primaryRole === 'owner' ? 'admin' : primaryRole;
+                    updateStaffMut.mutate({
+                      staffId: editingStaff.id,
+                      body: {
+                        fullName: staffEditForm.fullName.trim(),
+                        staffCode: staffEditForm.staffCode.trim(),
+                        username: staffEditForm.username.trim() || null,
+                        email: staffEditForm.email.trim() || null,
+                        phone: staffEditForm.phone.trim() || null,
+                        role: memberRole,
+                        primaryStoreId: staffEditForm.primaryStoreId,
+                        isActive: staffEditForm.isActive,
+                        storeRoles,
+                        ...(staffEditForm.password.trim() && { password: staffEditForm.password.trim() }),
+                      },
+                    });
+                  }}
+                  disabled={updateStaffMut.isPending || !canSaveStaff}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
+                >
+                  {updateStaffMut.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal: Create Store */}
+      {addStoreOpen && canUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg border border-border bg-background p-6 shadow-xl">
+            <div className="mb-5 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-foreground">Tạo cửa hàng mới</h3>
+              <button
+                onClick={() => { setAddStoreOpen(false); setStoreForm(DEFAULT_STORE_FORM); }}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+              <Field label="Tên cửa hàng *">
+                <input
+                  className={INPUT}
+                  value={storeForm.storeName}
+                  autoFocus
+                  onChange={(e) => setStoreForm((f) => ({ ...f, storeName: e.target.value }))}
+                  placeholder="Cửa hàng 1"
+                />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Mã cửa hàng">
+                  <input
+                    className={INPUT}
+                    value={storeForm.storeCode}
+                    onChange={(e) => setStoreForm((f) => ({ ...f, storeCode: e.target.value.toUpperCase() }))}
+                    placeholder="Tự động nếu để trống"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">2–30 ký tự IN HOA, số, gạch dưới</p>
+                </Field>
+                <Field label="Loại cửa hàng">
+                  <select
+                    className={INPUT}
+                    value={storeForm.storeType}
+                    onChange={(e) => setStoreForm((f) => ({ ...f, storeType: e.target.value }))}
+                  >
+                    {STORE_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Số điện thoại">
+                  <input
+                    className={INPUT}
+                    value={storeForm.phone}
+                    onChange={(e) => setStoreForm((f) => ({ ...f, phone: e.target.value }))}
+                    placeholder="0901234567"
+                  />
+                </Field>
+                <Field label="Email">
+                  <input
+                    type="email"
+                    className={INPUT}
+                    value={storeForm.email}
+                    onChange={(e) => setStoreForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="cuahang@business.vn"
+                  />
+                </Field>
+              </div>
+
+              <Field label="Địa chỉ">
+                <input
+                  className={INPUT}
+                  value={storeForm.address}
+                  onChange={(e) => setStoreForm((f) => ({ ...f, address: e.target.value }))}
+                  placeholder="123 Nguyễn Huệ"
+                />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Quận / Huyện">
+                  <input
+                    className={INPUT}
+                    value={storeForm.district}
+                    onChange={(e) => setStoreForm((f) => ({ ...f, district: e.target.value }))}
+                    placeholder="Quận 1"
+                  />
+                </Field>
+                <Field label="Tỉnh / Thành phố">
+                  <input
+                    className={INPUT}
+                    value={storeForm.city}
+                    onChange={(e) => setStoreForm((f) => ({ ...f, city: e.target.value }))}
+                    placeholder="TP. Hồ Chí Minh"
+                  />
+                </Field>
+              </div>
+            </div>
+
+            {createStoreMut.isError && (
+              <p className="mt-3 text-xs text-destructive">
+                {getApiErrorMessage(createStoreMut.error, 'Lỗi khi tạo cửa hàng.')}
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => { setAddStoreOpen(false); setStoreForm(DEFAULT_STORE_FORM); }}
+                className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={() => {
+                  if (!storeForm.storeName.trim()) return;
+                  createStoreMut.mutate({
+                    storeName: storeForm.storeName.trim(),
+                    ...(storeForm.storeCode && { storeCode: storeForm.storeCode }),
+                    storeType: storeForm.storeType,
+                    ...(storeForm.phone && { phone: storeForm.phone }),
+                    ...(storeForm.email && { email: storeForm.email }),
+                    ...(storeForm.address && { address: storeForm.address }),
+                    ...(storeForm.district && { district: storeForm.district }),
+                    ...(storeForm.city && { city: storeForm.city }),
+                  });
+                }}
+                disabled={createStoreMut.isPending || !storeForm.storeName.trim()}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
+              >
+                {createStoreMut.isPending ? 'Đang tạo...' : 'Tạo cửa hàng'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Add Assignee */}
       {addAssigneeOpen && canUpdate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1092,6 +1628,9 @@ export default function BusinessDetailPage() {
               <h3 className="text-base font-semibold text-foreground">Thêm nhân viên phụ trách</h3>
               <button onClick={() => { setAddAssigneeOpen(false); setAssigneeSearch(''); }} className="text-muted-foreground hover:text-foreground"><X size={18} /></button>
             </div>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Tài khoản được thêm sẽ được gán quyền phụ trách mức <span className="font-medium text-foreground">Quản trị</span>.
+            </p>
             <div className="relative mb-3">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
@@ -1135,7 +1674,7 @@ export default function BusinessDetailPage() {
             </div>
             {addAssigneeMut.isError && (
               <p className="mt-3 text-xs text-destructive">
-                {(addAssigneeMut.error as any)?.response?.data?.message ?? 'Lỗi khi thêm phụ trách.'}
+                {getApiErrorMessage(addAssigneeMut.error, 'Lỗi khi thêm phụ trách.')}
               </p>
             )}
           </div>

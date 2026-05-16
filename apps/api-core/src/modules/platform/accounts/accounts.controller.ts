@@ -1,10 +1,10 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req } from '@nestjs/common';
-import type { Request } from 'express';
 import { z } from 'zod';
 import { AccountsService } from './accounts.service';
 import { CreateAccountSchema } from './dto/create-account.dto';
 import { ListAccountsSchema } from './dto/list-accounts.dto';
 import { RequirePermission } from '@decorators/require-permission.decorator';
+import { resolvePlatformContext, type PlatformRequest } from '@common/auth/platform-context';
 
 const UpdateAccountStatusSchema = z.object({
   status: z.enum(['active', 'locked', 'disabled']),
@@ -32,21 +32,24 @@ export class AccountsController {
 
   @RequirePermission('platform.account.view')
   @Get()
-  list(@Query() query: unknown, @Req() req: Request & { platformUser?: any }) {
+  list(@Query() query: unknown, @Req() req: PlatformRequest) {
     const dto = ListAccountsSchema.parse(query);
-    const currentAccountId = req.platformUser?.sub as string;
-    const perms = req.platformUser?.userPermissions as Set<string> | undefined;
-    const isFullAdmin = perms?.has('platform.account.update') ?? false;
-    return this.accountsService.list(dto, isFullAdmin ? undefined : currentAccountId);
+    const ctx = resolvePlatformContext(req, 'platform.account.update');
+    return this.accountsService.list(dto, ctx.isFullAdmin ? undefined : ctx.accountId);
+  }
+
+  @RequirePermission('platform.account.view')
+  @Get('summary')
+  summary(@Req() req: PlatformRequest) {
+    const ctx = resolvePlatformContext(req, 'platform.account.update');
+    return this.accountsService.summary(ctx.isFullAdmin ? undefined : ctx.accountId);
   }
 
   @RequirePermission('platform.account.view')
   @Get(':id')
-  getOne(@Param('id') id: string, @Req() req: Request & { platformUser?: any }) {
-    const currentAccountId = req.platformUser?.sub as string;
-    const perms = req.platformUser?.userPermissions as Set<string> | undefined;
-    const isFullAdmin = perms?.has('platform.account.update') ?? false;
-    return this.accountsService.getOne(id, isFullAdmin ? undefined : currentAccountId);
+  getOne(@Param('id') id: string, @Req() req: PlatformRequest) {
+    const ctx = resolvePlatformContext(req, 'platform.account.update');
+    return this.accountsService.getOne(id, ctx.isFullAdmin ? undefined : ctx.accountId);
   }
 
   @RequirePermission('platform.account.create')
@@ -58,32 +61,26 @@ export class AccountsController {
 
   @RequirePermission('platform.account.update')
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: unknown, @Req() req: Request & { platformUser?: any }) {
+  update(@Param('id') id: string, @Body() body: unknown, @Req() req: PlatformRequest) {
     const dto = UpdateAccountSchema.parse(body);
-    const currentAccountId = req.platformUser?.sub as string;
-    const perms = req.platformUser?.userPermissions as Set<string> | undefined;
-    const isFullAdmin = perms?.has('platform.account.update') ?? false;
-    return this.accountsService.update(id, dto, currentAccountId, isFullAdmin ? undefined : currentAccountId);
+    const ctx = resolvePlatformContext(req, 'platform.account.update');
+    return this.accountsService.update(id, dto, ctx.actorId, ctx.isFullAdmin ? undefined : ctx.accountId);
   }
 
   @RequirePermission('platform.account.lock')
   @Patch(':id/status')
-  updateStatus(@Param('id') id: string, @Body() body: unknown, @Req() req: Request & { platformUser?: any }) {
+  updateStatus(@Param('id') id: string, @Body() body: unknown, @Req() req: PlatformRequest) {
     const { status } = UpdateAccountStatusSchema.parse(body);
-    const currentAccountId = req.platformUser?.sub as string;
-    const perms = req.platformUser?.userPermissions as Set<string> | undefined;
-    const isFullAdmin = perms?.has('platform.account.lock') ?? false;
-    return this.accountsService.updateStatus(id, status, currentAccountId, isFullAdmin ? undefined : currentAccountId);
+    const ctx = resolvePlatformContext(req, 'platform.account.lock');
+    return this.accountsService.updateStatus(id, status, ctx.actorId, ctx.isFullAdmin ? undefined : ctx.accountId);
   }
 
   @RequirePermission('platform.account.update')
   @Post(':id/reset-password')
-  resetPassword(@Param('id') id: string, @Body() body: unknown, @Req() req: Request & { platformUser?: any }) {
+  resetPassword(@Param('id') id: string, @Body() body: unknown, @Req() req: PlatformRequest) {
     const { newPassword } = ResetPasswordSchema.parse(body);
-    const currentAccountId = req.platformUser?.sub as string;
-    const perms = req.platformUser?.userPermissions as Set<string> | undefined;
-    const isFullAdmin = perms?.has('platform.account.update') ?? false;
-    return this.accountsService.resetPassword(id, newPassword, isFullAdmin ? undefined : currentAccountId);
+    const ctx = resolvePlatformContext(req, 'platform.account.update');
+    return this.accountsService.resetPassword(id, newPassword, ctx.isFullAdmin ? undefined : ctx.accountId);
   }
 
   @RequirePermission('platform.role.assign_permission')

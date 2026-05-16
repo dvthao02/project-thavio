@@ -8,8 +8,8 @@ export const documentSequencesInBusinessTemplate = businessTemplate.table("docum
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	storeId: uuid("store_id"),
 	docType: varchar("doc_type", { length: 50 }).notNull(),
-	prefix: varchar({ length: 20 }).default('').notNull(),
-	suffix: varchar({ length: 20 }).default('').notNull(),
+	prefix: varchar({ length: 20 }).default(').notNull(),
+	suffix: varchar({ length: 20 }).default(').notNull(),
 	padLength: integer("pad_length").default(6).notNull(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	lastNumber: bigint("last_number", { mode: "number" }).default(0).notNull(),
@@ -43,7 +43,6 @@ export const businessPeriodsInBusinessTemplate = businessTemplate.table("busines
 export const staffMembersInBusinessTemplate = businessTemplate.table("staff_members", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	staffCode: varchar("staff_code", { length: 30 }).notNull(),
-	username: varchar({ length: 80 }),
 	fullName: varchar("full_name", { length: 255 }).notNull(),
 	displayName: varchar("display_name", { length: 100 }),
 	phone: varchar({ length: 30 }),
@@ -73,7 +72,6 @@ export const staffMembersInBusinessTemplate = businessTemplate.table("staff_memb
 	uniqueIndex("staff_members_email_unique").using("btree", table.email.asc().nullsLast().op("text_ops")).where(sql`(email IS NOT NULL)`),
 	uniqueIndex("staff_members_phone_unique").using("btree", table.phone.asc().nullsLast().op("text_ops")).where(sql`(phone IS NOT NULL)`),
 	uniqueIndex("staff_members_staff_code_unique").using("btree", table.staffCode.asc().nullsLast().op("text_ops")),
-	uniqueIndex("staff_members_username_unique").using("btree", sql`lower((username)::text)`).where(sql`(username IS NOT NULL)`),
 	uniqueIndex("uq_staff_members_staff_code").using("btree", table.staffCode.asc().nullsLast().op("text_ops")),
 	foreignKey({
 			columns: [table.departmentId],
@@ -2340,8 +2338,8 @@ export const invoiceNumberSequencesInBusinessTemplate = businessTemplate.table("
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	storeId: uuid("store_id"),
 	invoiceType: varchar("invoice_type", { length: 30 }).default('sales_invoice').notNull(),
-	prefix: varchar({ length: 30 }).default('').notNull(),
-	suffix: varchar({ length: 30 }).default('').notNull(),
+	prefix: varchar({ length: 30 }).default(').notNull(),
+	suffix: varchar({ length: 30 }).default(').notNull(),
 	padLength: integer("pad_length").default(6).notNull(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	lastNumber: bigint("last_number", { mode: "number" }).default(0).notNull(),
@@ -4708,4 +4706,3 @@ export const productUnitsInBusinessTemplate = businessTemplate.table("product_un
 		}),
 	primaryKey({ columns: [table.productId, table.unitId], name: "product_units_pkey"}),
 ]);
-

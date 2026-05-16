@@ -54,7 +54,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Doanh nghiệp',
     items: [
       { href: '/admin/businesses', label: 'Danh sách doanh nghiệp', icon: Building2, permission: 'platform.business.view' },
-      { href: '/admin/operations/assignees', label: 'Tài khoản doanh nghiệp', icon: Users, permission: 'platform.business.view' },
+      { href: '/admin/business-accounts', label: 'Tài khoản doanh nghiệp', icon: Users, permission: 'platform.business.view' },
       { href: '/admin/rbac/roles?scope=business', label: 'Vai trò doanh nghiệp', icon: ShieldCheck, permission: 'platform.role.view' },
       { href: '/admin/subscriptions/trials', label: 'Dùng thử & gia hạn', icon: RotateCcw, permission: 'platform.subscription.view' },
       { href: '/admin/subscriptions/plans', label: 'Gói dịch vụ', icon: Package, permission: 'platform.subscription.view' },
@@ -226,5 +226,3 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     </aside>
   );
 }
-
-

@@ -6,6 +6,7 @@ const LEGACY_ADMIN_PREFIXES = [
   '/dashboard',
   '/alerts',
   '/audit-logs',
+  '/business-accounts',
   '/businesses',
   '/subscriptions',
   '/billing',
@@ -21,6 +22,18 @@ const LEGACY_ADMIN_PREFIXES = [
 
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+
+  if (pathname === '/admin/businesses/accounts' || pathname.startsWith('/admin/businesses/accounts/')) {
+    const target = new URL('/admin/business-accounts', request.url);
+    target.search = search;
+    return NextResponse.redirect(target);
+  }
+
+  if (pathname === '/businesses/accounts' || pathname.startsWith('/businesses/accounts/')) {
+    const target = new URL('/admin/business-accounts', request.url);
+    target.search = search;
+    return NextResponse.redirect(target);
+  }
 
   if (pathname === '/login') {
     const loginUrl = new URL('/admin/login', request.url);

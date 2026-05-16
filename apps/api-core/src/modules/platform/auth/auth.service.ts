@@ -139,7 +139,7 @@ export class AuthService {
     return { ok: true };
   }
 
-  async getMe(accountId: string) {
+  async getMe(accountId: string, cachedPermissions?: Iterable<string>) {
     const [account] = await this.platformDb.db
       .select({
         id: accounts.id,
@@ -153,13 +153,17 @@ export class AuthService {
 
     if (!account) throw new UnauthorizedException();
 
+    const permissionsQuery = cachedPermissions
+      ? Promise.resolve([...cachedPermissions].map((permissionKey) => ({ permissionKey })))
+      : this.platformDb.db
+          .selectDistinct({ permissionKey: permissions.permissionKey })
+          .from(accountRoleBindings)
+          .innerJoin(rolePermissions, eq(rolePermissions.roleId, accountRoleBindings.roleId))
+          .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
+          .where(eq(accountRoleBindings.accountId, accountId));
+
     const [perms, roleRows] = await Promise.all([
-      this.platformDb.db
-        .selectDistinct({ permissionKey: permissions.permissionKey })
-        .from(accountRoleBindings)
-        .innerJoin(rolePermissions, eq(rolePermissions.roleId, accountRoleBindings.roleId))
-        .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
-        .where(eq(accountRoleBindings.accountId, accountId)),
+      permissionsQuery,
       this.platformDb.db
         .selectDistinct({ roleName: roles.roleName })
         .from(accountRoleBindings)
