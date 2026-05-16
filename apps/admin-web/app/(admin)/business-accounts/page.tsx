@@ -404,10 +404,11 @@ export default function BusinessAccountsPage() {
     }));
   };
 
-  const refreshAll = () => {
-    refetchBusinesses();
-    refetchStores();
-    refetchStaff();
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshAll = async () => {
+    setRefreshing(true);
+    await Promise.all([refetchBusinesses(), refetchStores(), refetchStaff()]);
+    setRefreshing(false);
   };
 
   const canCreateStaff = Boolean(
@@ -450,10 +451,11 @@ export default function BusinessAccountsPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            disabled={refreshing}
             onClick={refreshAll}
-            className="inline-flex h-10 items-center gap-2 rounded-md border border-input px-3 text-sm font-medium transition hover:bg-muted"
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-input px-3 text-sm font-medium transition hover:bg-muted disabled:opacity-60"
           >
-            <RefreshCw size={15} className={staffFetching || storesFetching ? 'animate-spin' : ''} />
+            <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
             Làm mới
           </button>
           {canUpdateBusiness && (

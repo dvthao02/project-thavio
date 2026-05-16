@@ -1,7 +1,7 @@
 ﻿import { Injectable } from '@nestjs/common';
 import { count, eq, desc, asc, sql, and, inArray, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
-import { businesses, accounts, accountBusinesses } from '@schema/platform';
+import { businesses, accounts, accountBusinesses, businessSubscriptions } from '@schema/platform';
 
 export type Period = '7d' | '30d' | 'thisMonth' | '3m' | '6m' | '1y';
 
@@ -96,13 +96,13 @@ export class DashboardService {
       return and(...clauses);
     };
 
-    const rawBizScope = bizIds
-      ? bizIds.length > 0
-        ? sql`AND id IN (${sql.join(bizIds.map((bizId) => sql`${bizId}::uuid`), sql`, `)})`
-        : sql`AND 1=0`
-      : sql``;
-
     const accountWhere = accountScopeId ? eq(accounts.id, accountScopeId) : undefined;
+    const trialDeadlineSql = sql`COALESCE(${businesses.trialEndsAt}, ${businesses.createdAt} + INTERVAL '10 days')`;
+    const paidSubscriptionSql = sql`
+      COALESCE(${businessSubscriptions.status}, '') = 'active'
+      AND (${businessSubscriptions.renewedAt} IS NOT NULL OR ${businesses.subscriptionExpiresAt} IS NOT NULL)
+    `;
+    const trialingSql = sql`${businesses.status} = 'active' AND NOT (${paidSubscriptionSql}) AND ${trialDeadlineSql} >= NOW()`;
 
     const [
       [businessMetrics],
@@ -119,10 +119,11 @@ export class DashboardService {
           pending: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'pending')`,
           suspended: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'suspended')`,
           inactive: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'inactive')`,
-          trial: sql<number>`COUNT(*) FILTER (WHERE ${businesses.status} = 'active' AND ${businesses.createdAt} >= NOW() - INTERVAL '10 days')`,
+          trial: sql<number>`COUNT(*) FILTER (WHERE ${trialingSql})`,
           newInPeriod: sql<number>`COUNT(*) FILTER (WHERE ${businesses.createdAt} >= ${since})`,
         })
         .from(businesses)
+        .leftJoin(businessSubscriptions, eq(businessSubscriptions.businessId, businesses.id))
         .where(w()),
       db
         .select({
@@ -161,19 +162,22 @@ export class DashboardService {
         .orderBy(desc(accounts.createdAt))
         .limit(5),
       // By plan
-      db.execute(sql`
-        SELECT subscription_plan AS plan, COUNT(*)::int AS total
-        FROM platform.businesses
-        WHERE 1=1 ${rawBizScope}
-        GROUP BY subscription_plan
-        ORDER BY total DESC
-      `),
+      db
+        .select({
+          plan: businesses.subscriptionPlan,
+          total: sql<number>`COUNT(*)::int`,
+        })
+        .from(businesses)
+        .where(w())
+        .groupBy(businesses.subscriptionPlan)
+        .orderBy(desc(sql<number>`COUNT(*)`)),
       // By period
       db.execute(sql`
         SELECT TO_CHAR(DATE_TRUNC(${groupBySql}, created_at AT TIME ZONE 'UTC'), ${fmtSql}) AS label,
                COUNT(*)::int AS total
         FROM platform.businesses
-        WHERE created_at >= ${since} ${rawBizScope}
+        WHERE created_at >= ${since}
+          ${bizIds ? (bizIds.length > 0 ? sql`AND id = ANY(${bizIds}::uuid[])` : sql`AND 1=0`) : sql``}
         GROUP BY DATE_TRUNC(${groupBySql}, created_at AT TIME ZONE 'UTC')
         ORDER BY DATE_TRUNC(${groupBySql}, created_at AT TIME ZONE 'UTC') ASC
       `),
@@ -188,7 +192,7 @@ export class DashboardService {
         inactive: Number(businessMetrics?.inactive ?? 0),
         trial: Number(businessMetrics?.trial ?? 0),
         newInPeriod: Number(businessMetrics?.newInPeriod ?? 0),
-        byPlan: (byPlanRows.rows as { plan: string; total: number }[]).map((r) => ({
+        byPlan: byPlanRows.map((r) => ({
           plan: r.plan ?? 'unknown',
           total: Number(r.total),
         })),

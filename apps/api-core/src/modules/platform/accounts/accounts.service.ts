@@ -1,57 +1,21 @@
-import { Injectable, ConflictException, ForbiddenException, NotFoundException, BadRequestException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { Pool } from 'pg';
 import { eq, ilike, or, and, count, desc, ne, sql, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { PlatformPermissionCacheService } from '@common/auth/platform-permission-cache.service';
+import { normalizeEmail, normalizePhone, normalizeUsername } from '@common/platform/normalize';
 import { accounts, accountRoleBindings, roles, accountBusinesses, businesses } from '@schema/platform';
-import { env } from '@config/env';
 import type { CreateAccountDto } from './dto/create-account.dto';
 import type { ListAccountsDto } from './dto/list-accounts.dto';
 
 @Injectable()
-export class AccountsService implements OnModuleInit, OnModuleDestroy {
-  private adminPool: Pool;
-
+export class AccountsService {
   constructor(
     private readonly platformDb: PlatformDbService,
     private readonly permissionCache: PlatformPermissionCacheService,
   ) {}
 
-  onModuleInit() {
-    this.adminPool = new Pool({ connectionString: env.databaseUrl });
-  }
-
-  async onModuleDestroy() {
-    await this.adminPool.end();
-  }
-
-  private normalizeEmail(value?: string | null): string | null | undefined {
-    if (value === undefined) return undefined;
-    if (value === null) return null;
-    const trimmed = value.trim().toLowerCase();
-    return trimmed ? trimmed : null;
-  }
-
-  private normalizePhone(value?: string | null): string | null | undefined {
-    if (value === undefined) return undefined;
-    if (value === null) return null;
-    const normalized = value.trim().replace(/[\s.-]/g, '');
-    return normalized ? normalized : null;
-  }
-
-  private normalizeUsername(value?: string | null): string | null | undefined {
-    if (value === undefined) return undefined;
-    if (value === null) return null;
-    const normalized = value.trim().toLowerCase();
-    return normalized ? normalized : null;
-  }
-
-  private quoteIdentifier(value: string): string {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-
-  private async ensureLoginUniqueGlobal(
+  private async ensurePlatformLoginUnique(
     fields: { username?: string | null; email?: string | null; phone?: string | null },
     excludeAccountId?: string,
   ) {
@@ -79,45 +43,6 @@ export class AccountsService implements OnModuleInit, OnModuleDestroy {
         if (fields.phone && duplicateAccount.phone === fields.phone) {
           throw new ConflictException('Số điện thoại đã được sử dụng bởi tài khoản khác');
         }
-      }
-    }
-
-    if (!fields.username && !fields.email && !fields.phone) return;
-
-    const schemaRows = await this.platformDb.db.select({ schemaName: businesses.schemaName }).from(businesses);
-    for (const row of schemaRows) {
-      if (!row.schemaName) continue;
-      const schema = this.quoteIdentifier(row.schemaName);
-      const clauses: string[] = [];
-      const values: unknown[] = [];
-      const addValue = (value: unknown) => {
-        values.push(value);
-        return `$${values.length}`;
-      };
-
-      if (fields.username) clauses.push(`LOWER(username) = LOWER(${addValue(fields.username)})`);
-      if (fields.email) clauses.push(`LOWER(email) = LOWER(${addValue(fields.email)})`);
-      if (fields.phone) clauses.push(`phone = ${addValue(fields.phone)}`);
-      if (clauses.length === 0) continue;
-
-      const { rows } = await this.adminPool.query<{ username: string | null; email: string | null; phone: string | null }>(
-        `SELECT username, email, phone
-         FROM ${schema}.staff_members
-         WHERE ${clauses.join(' OR ')}
-         LIMIT 1`,
-        values,
-      );
-      const duplicateStaff = rows[0];
-      if (!duplicateStaff) continue;
-
-      if (fields.username && duplicateStaff.username?.toLowerCase() === fields.username.toLowerCase()) {
-        throw new ConflictException('Username đã được sử dụng bởi tài khoản khác');
-      }
-      if (fields.email && duplicateStaff.email?.toLowerCase() === fields.email.toLowerCase()) {
-        throw new ConflictException('Email đã được sử dụng bởi tài khoản khác');
-      }
-      if (fields.phone && duplicateStaff.phone === fields.phone) {
-        throw new ConflictException('Số điện thoại đã được sử dụng bởi tài khoản khác');
       }
     }
   }
@@ -262,9 +187,9 @@ export class AccountsService implements OnModuleInit, OnModuleDestroy {
     const [account] = await db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, id)).limit(1);
     if (!account) throw new NotFoundException('Account not found');
 
-    const normalizedEmail = this.normalizeEmail(dto.email);
-    const normalizedPhone = this.normalizePhone(dto.phone);
-    await this.ensureLoginUniqueGlobal({ email: normalizedEmail, phone: normalizedPhone }, id);
+    const normalizedEmail = normalizeEmail(dto.email);
+    const normalizedPhone = normalizePhone(dto.phone);
+    await this.ensurePlatformLoginUnique({ email: normalizedEmail, phone: normalizedPhone }, id);
 
     const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
     if (dto.fullName !== undefined) patch.fullName = dto.fullName;
@@ -331,10 +256,10 @@ export class AccountsService implements OnModuleInit, OnModuleDestroy {
 
   async create(dto: CreateAccountDto) {
     const db = this.platformDb.db;
-    const normalizedUsername = this.normalizeUsername(dto.username)!;
-    const normalizedEmail = this.normalizeEmail(dto.email);
-    const normalizedPhone = this.normalizePhone(dto.phone);
-    await this.ensureLoginUniqueGlobal({
+    const normalizedUsername = normalizeUsername(dto.username)!;
+    const normalizedEmail = normalizeEmail(dto.email);
+    const normalizedPhone = normalizePhone(dto.phone);
+    await this.ensurePlatformLoginUnique({
       username: normalizedUsername,
       email: normalizedEmail,
       phone: normalizedPhone,

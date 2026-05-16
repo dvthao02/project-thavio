@@ -169,6 +169,7 @@ function CompactStat({
 export default function AlertsPage() {
   const [filter, setFilter] = useState<AlertFilter>('all');
 
+  const [refreshing, setRefreshing] = useState(false);
   const { data, isLoading, isError, isFetching, refetch } = useQuery<AlertsResponse>({
     queryKey: ['platform-alerts'],
     queryFn: () => api.get('/platform/alerts').then((res) => res.data),
@@ -200,10 +201,11 @@ export default function AlertsPage() {
         </div>
         <button
           type="button"
-          onClick={() => refetch()}
-          className="inline-flex items-center gap-2 rounded-md border border-input px-3 py-2 text-sm font-medium transition hover:bg-muted"
+          disabled={refreshing}
+          onClick={async () => { setRefreshing(true); await refetch(); setRefreshing(false); }}
+          className="inline-flex items-center gap-2 rounded-md border border-input px-3 py-2 text-sm font-medium transition hover:bg-muted disabled:opacity-60"
         >
-          <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} />
+          <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
           Làm mới
         </button>
       </div>

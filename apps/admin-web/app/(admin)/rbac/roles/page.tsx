@@ -87,34 +87,178 @@ const ROLE_PRESETS: Record<'platform' | 'business', Array<{ label: string; roleN
   ],
   business: [
     {
+      label: 'Chủ sở hữu',
+      roleName: 'Chủ sở hữu',
+      roleKey: 'business.owner',
+      description: 'Toàn quyền quản lý doanh nghiệp',
+      permissionModules: ['*'],
+    },
+    {
       label: 'Quản lý cửa hàng',
       roleName: 'Quản lý cửa hàng',
       roleKey: 'business.store.manager',
-      description: 'Quản lý hoạt động cửa hàng',
-      permissionModules: ['APPROVAL', 'AUDIT', 'CASH', 'ORDER', 'PRODUCT', 'INVENTORY', 'CUSTOMER', 'REPORT'],
-    },
-    {
-      label: 'Nhân viên bán hàng',
-      roleName: 'Nhân viên bán hàng',
-      roleKey: 'business.sales',
-      description: 'Nghiệp vụ bán hàng tại quầy/POS',
-      permissionModules: ['SALES', 'ORDER', 'CUSTOMER', 'PRODUCT'],
+      description: 'Quản lý toàn bộ vận hành cửa hàng, nhân viên và báo cáo',
+      permissionModules: ['approval', 'audit', 'cash', 'customer', 'inventory', 'invoice', 'kitchen', 'loyalty', 'notification', 'order', 'payment', 'pos', 'product', 'production', 'promotion', 'purchase', 'receivable', 'report', 'service', 'setting', 'shift', 'shipping', 'staff', 'supplier', 'table', 'wallet'],
+      permissionKeys: ['store.config.update', 'store.update', 'store.view', 'role.view'],
     },
     {
       label: 'Thu ngân',
       roleName: 'Thu ngân',
       roleKey: 'business.cashier',
-      description: 'Thu chi và đối soát quầy',
-      permissionModules: ['CASH', 'ORDER', 'AUDIT'],
+      description: 'Thực hiện giao dịch bán hàng, quản lý két tiền và ca làm việc',
+      permissionModules: [],
+      permissionKeys: [
+        'pos.enter', 'pos.open_register', 'receipt.print',
+        'order.create', 'order.view', 'order.update_draft', 'order.discount.apply', 'order.split_bill', 'order.cancel', 'order.void',
+        'payment.cash', 'payment.card', 'payment.e_wallet', 'payment.bank_transfer', 'payment.voucher', 'payment.point', 'payment.partial', 'payment.process', 'payment.view', 'payment.refund',
+        'cash.view', 'cash.drawer.count', 'cash.drawer.reconcile', 'cash.movement.create',
+        'invoice.view', 'invoice.create',
+        'shift.open', 'shift.close', 'shift.view',
+        'customer.view', 'customer.create',
+        'product.view',
+      ],
+    },
+    {
+      label: 'Nhân viên bán hàng',
+      roleName: 'Nhân viên bán hàng',
+      roleKey: 'business.sales',
+      description: 'Bán hàng tại quầy POS, không quản lý két tiền và ca',
+      permissionModules: [],
+      permissionKeys: [
+        'pos.enter', 'pos.open_register', 'receipt.print',
+        'order.create', 'order.view', 'order.update_draft', 'order.discount.apply',
+        'payment.cash', 'payment.card', 'payment.e_wallet', 'payment.process', 'payment.view', 'payment.voucher', 'payment.point', 'payment.partial',
+        'customer.view', 'customer.create',
+        'product.view',
+        'shift.view',
+      ],
+    },
+    {
+      label: 'Nhân viên phục vụ (F&B)',
+      roleName: 'Nhân viên phục vụ',
+      roleKey: 'business.server',
+      description: 'Phục vụ bàn, gọi món và theo dõi trạng thái bếp',
+      permissionModules: [],
+      permissionKeys: [
+        'pos.enter', 'receipt.print',
+        'table.view', 'table.manage',
+        'order.create', 'order.view', 'order.update_draft', 'order.merge_table', 'order.move_table', 'order.split_bill',
+        'kitchen.view',
+        'product.view',
+        'shift.view',
+      ],
+    },
+    {
+      label: 'Nhân viên bếp',
+      roleName: 'Nhân viên bếp',
+      roleKey: 'business.kitchen',
+      description: 'Nhận và xử lý ticket bếp, cập nhật trạng thái món',
+      permissionModules: [],
+      permissionKeys: [
+        'kitchen.view', 'kitchen.update',
+        'order.view',
+        'production.view', 'production.manage', 'waste.create',
+      ],
+    },
+    {
+      label: 'Thủ kho',
+      roleName: 'Thủ kho',
+      roleKey: 'business.warehouse',
+      description: 'Quản lý tồn kho, nhập hàng và kiểm kê',
+      permissionModules: [],
+      permissionKeys: [
+        'inventory.view', 'inventory.adjust', 'inventory.deduct', 'inventory.reserve', 'inventory.stocktake', 'inventory.stocktake.approve', 'inventory.transaction.view', 'inventory.transfer', 'inventory.transfer.approve', 'inventory.costing.view',
+        'purchase.view', 'purchase.create', 'purchase.receive', 'purchase.return',
+        'supplier.view', 'supplier.create', 'supplier.update',
+        'product.view',
+      ],
+    },
+    {
+      label: 'Kế toán',
+      roleName: 'Kế toán',
+      roleKey: 'business.accountant',
+      description: 'Quản lý sổ sách, đối soát thanh toán và báo cáo tài chính',
+      permissionModules: [],
+      permissionKeys: [
+        'finance.view', 'finance.journal.post', 'finance.period.lock', 'finance.period.reopen',
+        'report.cost_profit.view', 'report.export', 'report.inventory.view', 'report.profit.view', 'report.sales.view', 'report.staff.view',
+        'receivable.adjust', 'receivable.collect', 'receivable.create', 'receivable.export', 'receivable.view', 'receivable.write_off',
+        'payment.view', 'payment.reconcile', 'payment.refund', 'payment.refund_override',
+        'cash.view', 'cash.bank_deposit',
+        'invoice.view', 'invoice.create', 'invoice.cancel', 'invoice.credit_note.create',
+        'activity_log.view',
+        'purchase.payable.view',
+      ],
+    },
+    {
+      label: 'Nhân viên giao hàng',
+      roleName: 'Nhân viên giao hàng',
+      roleKey: 'business.delivery',
+      description: 'Xử lý và vận chuyển đơn hàng giao tận nơi',
+      permissionModules: [],
+      permissionKeys: [
+        'shipping.view', 'shipping.create', 'shipping.update', 'shipping.cod_reconcile',
+        'order.view',
+        'payment.cash', 'payment.view',
+      ],
+    },
+    {
+      label: 'Chăm sóc khách hàng',
+      roleName: 'Chăm sóc khách hàng',
+      roleKey: 'business.crm',
+      description: 'Quản lý thông tin khách hàng, tích điểm và chương trình khách hàng thân thiết',
+      permissionModules: [],
+      permissionKeys: [
+        'customer.view', 'customer.create', 'customer.update', 'customer.point.adjust', 'customer.merge', 'customer.campaign.manage', 'customer.disable', 'customer.export',
+        'loyalty.view', 'loyalty.manage',
+        'wallet.view', 'wallet.adjust',
+        'notification.view', 'notification.send',
+        'order.view',
+      ],
+    },
+    {
+      label: 'Quản lý mua hàng',
+      roleName: 'Quản lý mua hàng',
+      roleKey: 'business.purchasing',
+      description: 'Đặt hàng nhà cung cấp, nhận hàng và theo dõi công nợ',
+      permissionModules: [],
+      permissionKeys: [
+        'purchase.view', 'purchase.create', 'purchase.cancel', 'purchase.receive', 'purchase.return', 'purchase.payable.view', 'purchase.payment.process',
+        'supplier.view', 'supplier.create', 'supplier.update', 'supplier.disable',
+        'inventory.view', 'inventory.transaction.view',
+        'product.view',
+      ],
+    },
+    {
+      label: 'Quản lý sản phẩm',
+      roleName: 'Quản lý sản phẩm',
+      roleKey: 'business.product.manager',
+      description: 'Quản lý danh mục sản phẩm, giá, khuyến mãi và kênh bán',
+      permissionModules: [],
+      permissionKeys: [
+        'product.view', 'product.create', 'product.update', 'product.delete', 'product.export', 'product.import', 'product.price.update', 'product.cost.update', 'product.barcode.manage', 'product.lot.manage', 'product.serial.manage', 'product.media.manage', 'product.recipe.manage',
+        'promotion.view', 'promotion.create', 'promotion.update', 'promotion.delete',
+        'channel.view', 'channel.manage', 'channel.sync',
+        'inventory.view', 'inventory.view_cost',
+      ],
     },
   ],
 };
 const ROLE_PRIORITY: Record<string, number> = {
   'platform.admin': 1,
-  'business.store.manager': 2,
-  'platform.support': 3,
-  'business.sales': 4,
+  'platform.support': 2,
+  'business.owner': 3,
+  'business.store.manager': 4,
   'business.cashier': 5,
+  'business.sales': 6,
+  'business.server': 7,
+  'business.kitchen': 8,
+  'business.warehouse': 9,
+  'business.accountant': 10,
+  'business.delivery': 11,
+  'business.crm': 12,
+  'business.purchasing': 13,
+  'business.product.manager': 14,
 };
 
 function RolesPageInner() {
@@ -214,12 +358,14 @@ function RolesPageInner() {
       if (a.roleScope !== b.roleScope) return a.roleScope === 'platform' ? -1 : 1;
       return a.roleName.localeCompare(b.roleName, 'vi');
     });
-  const platformCount = roles.filter((r) => r.roleScope === 'platform').length;
-  const businessCount = roles.filter((r) => r.roleScope === 'business').length;
-  const systemCount = roles.filter((r) => r.isSystem).length;
-  const customCount = roles.length - systemCount;
-  const permissionBindings = roles.reduce((sum, role) => sum + role.permissionCount, 0);
-  const accountBindings = roles.reduce((sum, role) => sum + role.accountCount, 0);
+  const platformRoles = roles.filter((r) => r.roleScope === 'platform');
+  const businessRoles = roles.filter((r) => r.roleScope === 'business');
+  const platformCount = platformRoles.length;
+  const businessCount = businessRoles.length;
+  const platformSystemCount = platformRoles.filter((r) => r.isSystem).length;
+  const businessSystemCount = businessRoles.filter((r) => r.isSystem).length;
+  const platformPerms = platformRoles.reduce((s, r) => s + r.permissionCount, 0);
+  const businessPerms = businessRoles.reduce((s, r) => s + r.permissionCount, 0);
 
   const visibleModules = (allPermsData?.modules ?? [])
     .map((m) => ({
@@ -278,40 +424,33 @@ function RolesPageInner() {
         </button>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <CompactStat
-          label="Tổng vai trò"
-          value={roles.length}
-          sub={`${platformCount} nền tảng, ${businessCount} cửa hàng`}
+          label="Vai trò nền tảng"
+          value={platformCount}
+          sub={`${platformSystemCount} hệ thống · ${platformCount - platformSystemCount} tùy chỉnh`}
           icon={ShieldCheck}
-          tone="bg-primary/10 text-primary"
+          tone="bg-violet-500/10 text-violet-700"
         />
         <CompactStat
-          label="Vai trò hệ thống"
-          value={systemCount}
-          sub={`${customCount} vai trò tùy chỉnh`}
-          icon={Crown}
-          tone="bg-amber-500/10 text-amber-700"
+          label="Vai trò doanh nghiệp"
+          value={businessCount}
+          sub={`${businessSystemCount} hệ thống · ${businessCount - businessSystemCount} tùy chỉnh`}
+          icon={Building2}
+          tone="bg-sky-500/10 text-sky-700"
         />
         <CompactStat
-          label="Quyền đã gán"
-          value={permissionBindings}
-          sub="Tổng role-permission"
+          label="Quyền platform"
+          value={platformPerms}
+          sub="Gán vào vai trò nền tảng"
           icon={KeyRound}
           tone="bg-violet-500/10 text-violet-700"
         />
         <CompactStat
-          label="Tài khoản dùng role"
-          value={accountBindings}
-          sub="Tổng role binding"
-          icon={Users}
-          tone="bg-emerald-500/10 text-emerald-700"
-        />
-        <CompactStat
-          label="Đang lọc"
-          value={filtered.length}
-          sub={scope === 'all' ? 'Tất cả phạm vi' : scope === 'platform' ? 'Phạm vi platform' : 'Phạm vi business'}
-          icon={Building2}
+          label="Quyền doanh nghiệp"
+          value={businessPerms}
+          sub="Gán vào vai trò doanh nghiệp"
+          icon={Crown}
           tone="bg-sky-500/10 text-sky-700"
         />
       </div>
@@ -345,11 +484,10 @@ function RolesPageInner() {
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="overflow-x-auto">
-        <table className="w-full min-w-[600px] text-sm">
+        <table className="w-full min-w-[500px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
               <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Vai trò</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Phạm vi</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Số quyền</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Tài khoản</th>
               <th className="px-4 py-3" />
@@ -359,7 +497,7 @@ function RolesPageInner() {
             {isLoading ? (
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={i}>
-                  {Array.from({ length: 5 }).map((__, j) => (
+                  {Array.from({ length: 4 }).map((__, j) => (
                     <td key={j} className="px-4 py-4">
                       <div className="h-4 animate-pulse rounded bg-muted" />
                     </td>
@@ -368,14 +506,13 @@ function RolesPageInner() {
               ))
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-5 py-12 text-center">
+                <td colSpan={4} className="px-5 py-12 text-center">
                   <ShieldCheck size={32} className="mx-auto mb-2 text-muted-foreground/40" />
                   <p className="text-sm text-muted-foreground">Không có vai trò nào.</p>
                 </td>
               </tr>
             ) : (
               filtered.map((role) => {
-                const scopeMeta = SCOPE_META[role.roleScope] ?? SCOPE_META.platform;
                 return (
                   <tr key={role.id} className="transition hover:bg-muted/20">
                     <td className="px-5 py-3.5">
@@ -391,11 +528,6 @@ function RolesPageInner() {
                       {role.description && (
                         <p className="mt-1 text-xs text-muted-foreground line-clamp-1">{role.description}</p>
                       )}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${scopeMeta.cls}`}>
-                        {scopeMeta.label}
-                      </span>
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="group/tip relative inline-flex items-center gap-1.5 text-sm">
@@ -436,7 +568,7 @@ function RolesPageInner() {
       {/* Create modal */}
       {createOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="flex w-full max-w-3xl flex-col rounded-lg border border-border bg-background shadow-xl" style={{ maxHeight: '90vh' }}>
+          <div className="flex flex-col rounded-lg border border-border bg-background shadow-xl" style={{ width: '66.666vw', maxHeight: '90vh' }}>
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h3 className="text-base font-semibold text-foreground">Tạo vai trò mới</h3>
               <button onClick={closeCreate} className="text-muted-foreground hover:text-foreground">
@@ -598,21 +730,21 @@ function RolesPageInner() {
                                 {m.permissions.filter((p) => selectedPerms.has(p.id)).length}/{m.permissions.length}
                               </span>
                             </label>
-                            <div className="ml-4 mt-1 space-y-0.5">
+                            <div className="mt-1 grid grid-cols-2 xl:grid-cols-3">
                               {m.permissions.map((p) => (
                                 <label
                                   key={p.id}
-                                  className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/40"
+                                  className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/40"
                                 >
                                   <input
                                     type="checkbox"
                                     checked={selectedPerms.has(p.id)}
                                     onChange={() => togglePerm(p.id)}
-                                    className="rounded"
+                                    className="mt-0.5 h-3.5 w-3.5 rounded accent-primary"
                                   />
                                   <div className="min-w-0">
-                                    <p className="text-sm text-foreground">{p.permissionName}</p>
-                                    <code className="text-xs text-muted-foreground">{p.permissionKey}</code>
+                                    <p className="text-xs font-medium text-foreground leading-tight">{p.permissionName}</p>
+                                    <code className="text-[10px] text-muted-foreground leading-tight block truncate">{p.permissionKey}</code>
                                   </div>
                                 </label>
                               ))}

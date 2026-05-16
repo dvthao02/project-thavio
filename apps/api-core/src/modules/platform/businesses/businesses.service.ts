@@ -14,6 +14,13 @@ import { Pool, type PoolClient } from 'pg';
 import { eq, ilike, or, count, desc, and, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { BusinessDbService } from '@common/database/business-db.service';
+import {
+  TRIAL_DAYS,
+  resolveSubscriptionLifecycle,
+  resolveTrialEndsAt,
+  type SubscriptionLifecycleStatus,
+} from '@common/platform/subscription-lifecycle';
+import { normalizeEmail, normalizePhone, normalizeUsername, normalizeTaxCode } from '@common/platform/normalize';
 import { businesses, businessSubscriptions, accountBusinesses, accounts } from '@schema/platform';
 import { env } from '@config/env';
 import type { CreateBusinessDto } from './dto/create-business.dto';
@@ -25,7 +32,6 @@ import type { CreateStaffDto, StaffRoleValue } from './dto/create-staff.dto';
 import type { UpdateStaffDto } from './dto/update-staff.dto';
 import type { CreateStoreDto } from './dto/create-store.dto';
 
-const TRIAL_DAYS = 10;
 const FIRST_STORE_QUERY_CONCURRENCY = 5;
 const STAFF_ROLE_KEY_MAP: Record<string, string> = {
   owner: 'OWNER',
@@ -50,97 +56,22 @@ type BusinessIdentityFields = {
   taxCode?: string | null;
 };
 
-type StaffLoginFields = {
-  email?: string | null;
-  phone?: string | null;
-  username?: string | null;
-};
-
 type PgError = Error & {
   code?: string;
   constraint?: string;
 };
 
-function normalizeBusinessEmail(value?: string | null): string | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed.toLowerCase() : null;
-}
-
-function normalizeBusinessPhone(value?: string | null): string | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  const normalized = value.trim().replace(/[\s.-]/g, '');
-  return normalized ? normalized : null;
-}
-
-function normalizeBusinessTaxCode(value?: string | null): string | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  const normalized = value.trim().toUpperCase();
-  return normalized ? normalized : null;
-}
-
 function normalizeBusinessIdentity(fields: BusinessIdentityFields): BusinessIdentityFields {
   return {
-    email: normalizeBusinessEmail(fields.email),
-    phone: normalizeBusinessPhone(fields.phone),
-    taxCode: normalizeBusinessTaxCode(fields.taxCode),
+    email: normalizeEmail(fields.email),
+    phone: normalizePhone(fields.phone),
+    taxCode: normalizeTaxCode(fields.taxCode),
   };
-}
-
-function normalizeLoginEmail(value?: string | null): string | null | undefined {
-  return normalizeBusinessEmail(value);
-}
-
-function normalizeLoginPhone(value?: string | null): string | null | undefined {
-  return normalizeBusinessPhone(value);
-}
-
-function normalizeUsername(value?: string | null): string | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  const normalized = value.trim().toLowerCase();
-  return normalized ? normalized : null;
-}
-
-function quoteIdentifier(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
-function deriveSubscriptionStatus(
-  businessStatus: string | null,
-  createdAt: string | null,
-  subStatus: string | null,
-  periodEnd: string | null,
-  trialEndsAt?: string | null,
-): string {
-  if (businessStatus === 'suspended') return 'suspended';
-  if (businessStatus === 'inactive') return 'cancelled';
-  if (businessStatus === 'pending') return 'pending';
-
-  if (subStatus === 'cancelled') return 'cancelled';
-  if (subStatus === 'inactive') return 'cancelled';
-  if (subStatus === 'pending') return 'pending';
-
-  // DB status='active' — check if expired first
-  if (periodEnd && new Date(periodEnd) < new Date()) return 'past_due';
-
-  // Within trial window? Use explicit override if set, else fall back to createdAt + TRIAL_DAYS
-  const trialDeadline = trialEndsAt
-    ? new Date(trialEndsAt)
-    : createdAt
-    ? new Date(new Date(createdAt).getTime() + TRIAL_DAYS * 86_400_000)
-    : null;
-  if (trialDeadline && trialDeadline > new Date()) return 'trialing';
-
-  return 'active';
 }
 
 @Injectable()
 export class BusinessesService implements OnModuleInit, OnModuleDestroy {
-  private adminPool: Pool;
+  private adminPool!: Pool;
 
   constructor(
     private readonly platformDb: PlatformDbService,
@@ -190,109 +121,52 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     return null;
   }
 
-  private async getBusinessSchemaNames(): Promise<string[]> {
-    const rows = await this.platformDb.db
-      .select({ schemaName: businesses.schemaName })
-      .from(businesses);
-
-    return rows
-      .map((row) => row.schemaName)
-      .filter((schemaName): schemaName is string => Boolean(schemaName));
-  }
-
-  private async ensureStaffLoginUniqueGlobal(
-    fields: StaffLoginFields,
-    exclude?: { schemaName: string; staffId: string },
+  private async ensureBusinessAccountLoginUnique(
+    db: Queryable,
+    fields: { username?: string | null; email?: string | null; phone?: string | null },
+    excludeAccountId?: string,
   ) {
-    const platformFilters: SQL[] = [];
+    const clauses: string[] = [];
+    const values: unknown[] = [];
+    const addValue = (value: unknown) => {
+      values.push(value);
+      return `$${values.length}`;
+    };
+
     if (fields.email) {
-      platformFilters.push(sql`LOWER(${accounts.email}) = ${fields.email.toLowerCase()}`);
+      clauses.push(`LOWER(email) = LOWER(${addValue(fields.email)})`);
     }
     if (fields.phone) {
-      platformFilters.push(eq(accounts.phone, fields.phone));
+      clauses.push(`phone = ${addValue(fields.phone)}`);
     }
     if (fields.username) {
-      platformFilters.push(sql`LOWER(${accounts.username}) = ${fields.username.toLowerCase()}`);
+      clauses.push(`LOWER(username) = LOWER(${addValue(fields.username)})`);
+    }
+    if (clauses.length === 0) return;
+
+    let excludeSql = '';
+    if (excludeAccountId) {
+      excludeSql = `AND id <> ${addValue(excludeAccountId)}::uuid`;
     }
 
-    if (platformFilters.length > 0) {
-      const platformWhere = platformFilters.length === 1 ? platformFilters[0] : (or(...platformFilters) as SQL);
-      const [duplicateAccount] = await this.platformDb.db
-        .select({
-          email: accounts.email,
-          phone: accounts.phone,
-          username: accounts.username,
-        })
-        .from(accounts)
-        .where(platformWhere)
-        .limit(1);
+    const { rows } = await db.query<{ username: string | null; email: string | null; phone: string | null }>(
+      `SELECT username, email, phone
+       FROM accounts
+       WHERE (${clauses.join(' OR ')}) ${excludeSql}
+       LIMIT 1`,
+      values,
+    );
+    const duplicate = rows[0];
+    if (!duplicate) return;
 
-      if (duplicateAccount) {
-        if (fields.phone && duplicateAccount.phone === fields.phone) {
-          throw new ConflictException('Số điện thoại đã được sử dụng bởi tài khoản khác');
-        }
-        if (fields.email && duplicateAccount.email?.toLowerCase() === fields.email.toLowerCase()) {
-          throw new ConflictException('Email đã được sử dụng bởi tài khoản khác');
-        }
-        if (fields.username && duplicateAccount.username?.toLowerCase() === fields.username.toLowerCase()) {
-          throw new ConflictException('Username đã được sử dụng bởi tài khoản khác');
-        }
-      }
+    if (fields.username && duplicate.username?.toLowerCase() === fields.username.toLowerCase()) {
+      throw new ConflictException('Username đã được sử dụng trong doanh nghiệp này');
     }
-
-    if (!fields.email && !fields.phone && !fields.username) return;
-
-    const schemaNames = await this.getBusinessSchemaNames();
-    for (const schemaName of schemaNames) {
-      const schema = quoteIdentifier(schemaName);
-      const clauses: string[] = [];
-      const values: unknown[] = [];
-
-      const addValue = (value: unknown) => {
-        values.push(value);
-        return `$${values.length}`;
-      };
-
-      if (fields.email) {
-        clauses.push(`LOWER(email) = LOWER(${addValue(fields.email)})`);
-      }
-      if (fields.phone) {
-        clauses.push(`phone = ${addValue(fields.phone)}`);
-      }
-      if (fields.username) {
-        clauses.push(`LOWER(username) = LOWER(${addValue(fields.username)})`);
-      }
-      if (clauses.length === 0) continue;
-
-      let excludeSql = '';
-      if (exclude && exclude.schemaName === schemaName) {
-        excludeSql = `AND id <> ${addValue(exclude.staffId)}::uuid`;
-      }
-
-      const { rows } = await this.adminPool.query<{
-        email: string | null;
-        phone: string | null;
-        username: string | null;
-      }>(
-        `SELECT email, phone, username
-         FROM ${schema}.staff_members
-         WHERE (${clauses.join(' OR ')}) ${excludeSql}
-         LIMIT 1`,
-        values,
-      );
-
-      const duplicateStaff = rows[0];
-      if (!duplicateStaff) continue;
-
-      if (fields.phone && duplicateStaff.phone === fields.phone) {
-        throw new ConflictException('Số điện thoại đã được sử dụng bởi tài khoản khác');
-      }
-      if (fields.email && duplicateStaff.email?.toLowerCase() === fields.email.toLowerCase()) {
-        throw new ConflictException('Email đã được sử dụng bởi tài khoản khác');
-      }
-      if (fields.username && duplicateStaff.username?.toLowerCase() === fields.username.toLowerCase()) {
-        throw new ConflictException('Username đã được sử dụng bởi tài khoản khác');
-      }
+    if (fields.email && duplicate.email?.toLowerCase() === fields.email.toLowerCase()) {
+      throw new ConflictException('Email đã được sử dụng trong doanh nghiệp này');
+    }
+    if (fields.phone && duplicate.phone === fields.phone) {
+      throw new ConflictException('Số điện thoại đã được sử dụng trong doanh nghiệp này');
     }
   }
 
@@ -323,10 +197,12 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
           email: businesses.email,
           phone: businesses.phone,
           timezoneName: businesses.timezoneName,
+          subscriptionExpiresAt: businesses.subscriptionExpiresAt,
           createdAt: businesses.createdAt,
           trialEndsAt: businesses.trialEndsAt,
           _subStatus: businessSubscriptions.status,
           _subPeriodEnd: businessSubscriptions.currentPeriodEnd,
+          _subRenewedAt: businessSubscriptions.renewedAt,
         })
         .from(businesses)
         .leftJoin(businessSubscriptions, eq(businessSubscriptions.businessId, businesses.id))
@@ -352,22 +228,23 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       this.fetchFirstStores(schemaTargets),
     ]);
 
-    const data = rows.map(({ _subStatus, _subPeriodEnd, ...row }) => {
-      const subscriptionStatus = deriveSubscriptionStatus(row.status, row.createdAt, _subStatus, _subPeriodEnd, row.trialEndsAt);
-      const resolvedTrialEndsAt =
-        row.trialEndsAt ??
-        (row.createdAt ? new Date(new Date(row.createdAt).getTime() + TRIAL_DAYS * 86_400_000).toISOString() : null);
-      const trialDaysLeft =
-        subscriptionStatus === 'trialing' && resolvedTrialEndsAt
-          ? Math.max(0, Math.ceil((new Date(resolvedTrialEndsAt).getTime() - Date.now()) / 86_400_000))
-          : null;
+    const data = rows.map(({ _subStatus, _subPeriodEnd, _subRenewedAt, ...row }) => {
+      const lifecycle = resolveSubscriptionLifecycle({
+        businessStatus: row.status,
+        createdAt: row.createdAt,
+        trialEndsAt: row.trialEndsAt,
+        subscriptionStatus: _subStatus,
+        periodEnd: _subPeriodEnd,
+        renewedAt: _subRenewedAt,
+        subscriptionExpiresAt: row.subscriptionExpiresAt,
+      });
 
       return {
         ...row,
-        subscriptionStatus,
+        subscriptionStatus: lifecycle.status,
         trialStartedAt: row.createdAt,
-        trialEndsAt: resolvedTrialEndsAt,
-        trialDaysLeft,
+        trialEndsAt: lifecycle.trialEndsAt,
+        trialDaysLeft: lifecycle.trialDaysLeft,
         assignedAccount: assignedAccountMap.get(row.id) ?? null,
         firstStore: firstStoreMap.get(row.id) ?? null,
       };
@@ -379,24 +256,63 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async summary(dto: Pick<ListBusinessesDto, 'status' | 'search' | 'assigneeId'>, scopeAccountId?: string) {
+  private trialDeadlineSql(): SQL {
+    return sql`COALESCE(${businesses.trialEndsAt}, ${businesses.createdAt} + INTERVAL '10 days')`;
+  }
+
+  private paidSubscriptionSql(): SQL {
+    return sql`
+      COALESCE(${businessSubscriptions.status}, '') = 'active'
+      AND (${businessSubscriptions.renewedAt} IS NOT NULL OR ${businesses.subscriptionExpiresAt} IS NOT NULL)
+    `;
+  }
+
+  private subscriptionStatusWhere(status: SubscriptionLifecycleStatus): SQL {
+    const trialDeadline = this.trialDeadlineSql();
+    const paidSubscription = this.paidSubscriptionSql();
+
+    switch (status) {
+      case 'suspended':
+        return sql`${businesses.status} = 'suspended'`;
+      case 'cancelled':
+        return sql`(${businesses.status} = 'inactive' OR ${businessSubscriptions.status} IN ('inactive', 'cancelled'))`;
+      case 'pending':
+        return sql`(${businesses.status} = 'pending' OR ${businessSubscriptions.status} = 'pending')`;
+      case 'trialing':
+        return sql`${businesses.status} = 'active' AND NOT (${paidSubscription}) AND ${trialDeadline} >= NOW()`;
+      case 'trial_expired':
+        return sql`${businesses.status} = 'active' AND NOT (${paidSubscription}) AND ${trialDeadline} < NOW()`;
+      case 'past_due':
+        return sql`
+          ${businesses.status} = 'active'
+          AND (${paidSubscription})
+          AND ${businessSubscriptions.currentPeriodEnd} IS NOT NULL
+          AND ${businessSubscriptions.currentPeriodEnd} < NOW()
+        `;
+      case 'active':
+      default:
+        return sql`
+          ${businesses.status} = 'active'
+          AND (${paidSubscription})
+          AND (${businessSubscriptions.currentPeriodEnd} IS NULL OR ${businessSubscriptions.currentPeriodEnd} >= NOW())
+        `;
+    }
+  }
+
+  private trialWhere(trial: NonNullable<ListBusinessesDto['trial']>): SQL {
+    const trialDeadline = this.trialDeadlineSql();
+    const trialing = this.subscriptionStatusWhere('trialing');
+
+    if (trial === 'expired') return this.subscriptionStatusWhere('trial_expired');
+    if (trial === 'expiring') return sql`${trialing} AND ${trialDeadline} <= NOW() + INTERVAL '2 days'`;
+    return sql`${trialing} AND ${trialDeadline} > NOW() + INTERVAL '2 days'`;
+  }
+
+  async summary(dto: ListBusinessesDto, scopeAccountId?: string) {
     const whereClause = await this.buildBusinessListWhere(dto, scopeAccountId);
-    const trialingSql = sql`
-      ${businesses.status} = 'active'
-      AND COALESCE(${businessSubscriptions.status}, 'active') NOT IN ('cancelled', 'inactive', 'pending')
-      AND (${businessSubscriptions.currentPeriodEnd} IS NULL OR ${businessSubscriptions.currentPeriodEnd} >= NOW())
-      AND COALESCE(${businesses.trialEndsAt}, ${businesses.createdAt} + INTERVAL '10 days') > NOW()
-    `;
-    const expiringSql = sql`
-      ${trialingSql}
-      AND COALESCE(${businesses.trialEndsAt}, ${businesses.createdAt} + INTERVAL '10 days') <= NOW() + INTERVAL '2 days'
-    `;
-    const pastDueSql = sql`
-      ${businesses.status} = 'active'
-      AND COALESCE(${businessSubscriptions.status}, 'active') NOT IN ('cancelled', 'inactive', 'pending')
-      AND ${businessSubscriptions.currentPeriodEnd} IS NOT NULL
-      AND ${businessSubscriptions.currentPeriodEnd} < NOW()
-    `;
+    const trialingSql = this.subscriptionStatusWhere('trialing');
+    const expiringSql = sql`${trialingSql} AND ${this.trialDeadlineSql()} <= NOW() + INTERVAL '2 days'`;
+    const pastDueSql = this.subscriptionStatusWhere('past_due');
 
     const [row] = await this.platformDb.db
       .select({
@@ -430,22 +346,28 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async buildBusinessListWhere(
-    dto: Pick<ListBusinessesDto, 'status' | 'search' | 'assigneeId'>,
+    dto: ListBusinessesDto,
     scopeAccountId?: string,
   ): Promise<SQL | undefined> {
-    const { status, search, assigneeId } = dto;
+    const { status, search, assigneeId, assignedAccountId, plan, subscriptionStatus, trial } = dto;
     const filters: SQL[] = [];
 
-    const assignmentAccountIds = [...new Set([scopeAccountId, assigneeId].filter(Boolean))] as string[];
+    const assignmentAccountIds = [...new Set([scopeAccountId, assigneeId, assignedAccountId].filter(Boolean))] as string[];
     if (assignmentAccountIds.length > 0) {
       const assignedByAccount = await this.fetchActiveAssignedBusinessIds(assignmentAccountIds);
       let allowedIds: Set<string> | null = null;
 
       for (const accountId of assignmentAccountIds) {
         const ids = new Set(assignedByAccount.get(accountId) ?? []);
-        allowedIds = allowedIds
-          ? new Set([...allowedIds].filter((businessId) => ids.has(businessId)))
-          : ids;
+        if (allowedIds) {
+          const intersection = new Set<string>();
+          for (const businessId of allowedIds) {
+            if (ids.has(businessId)) intersection.add(businessId);
+          }
+          allowedIds = intersection;
+        } else {
+          allowedIds = ids;
+        }
       }
 
       const ids = [...(allowedIds ?? new Set<string>())];
@@ -453,6 +375,9 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (status) filters.push(eq(businesses.status, status));
+    if (plan) filters.push(eq(businesses.subscriptionPlan, plan));
+    if (subscriptionStatus) filters.push(this.subscriptionStatusWhere(subscriptionStatus));
+    if (trial) filters.push(this.trialWhere(trial));
     if (search) {
       filters.push(
         or(
@@ -563,22 +488,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  async getOne(id: string, scopeAccountId?: string) {
-    if (scopeAccountId) {
-      const [access] = await this.platformDb.db
-        .select({ id: accountBusinesses.id })
-        .from(accountBusinesses)
-        .where(
-          and(
-            eq(accountBusinesses.accountId, scopeAccountId),
-            eq(accountBusinesses.businessId, id),
-            eq(accountBusinesses.status, 'active'),
-          ),
-        )
-        .limit(1);
-      if (!access) throw new ForbiddenException('Không có quyền truy cập doanh nghiệp này');
-    }
-
+  async getOne(slug: string, scopeAccountId?: string) {
     const [business] = await this.platformDb.db
       .select({
         id: businesses.id,
@@ -607,28 +517,48 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       })
       .from(businesses)
       .leftJoin(businessSubscriptions, eq(businessSubscriptions.businessId, businesses.id))
-      .where(eq(businesses.id, id))
+      .where(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug)
+          ? or(eq(businesses.id, slug), eq(businesses.businessCode!, slug))
+          : eq(businesses.businessCode!, slug),
+      )
       .limit(1);
 
     if (!business) throw new NotFoundException('Không tìm thấy doanh nghiệp');
 
+    if (scopeAccountId) {
+      const [access] = await this.platformDb.db
+        .select({ id: accountBusinesses.id })
+        .from(accountBusinesses)
+        .where(
+          and(
+            eq(accountBusinesses.accountId, scopeAccountId),
+            eq(accountBusinesses.businessId, business.id),
+            eq(accountBusinesses.status, 'active'),
+          ),
+        )
+        .limit(1);
+      if (!access) throw new ForbiddenException('Không có quyền truy cập doanh nghiệp này');
+    }
+
     const { _subStatus, _subPeriodStart, _subPeriodEnd, _subRenewedAt, ...row } = business;
-    const subscriptionStatus = deriveSubscriptionStatus(row.status, row.createdAt, _subStatus, _subPeriodEnd, row.trialEndsAt);
-    const resolvedTrialEndsAt =
-      row.trialEndsAt ??
-      (row.createdAt ? new Date(new Date(row.createdAt).getTime() + TRIAL_DAYS * 86_400_000).toISOString() : null);
-    const trialDaysLeft =
-      subscriptionStatus === 'trialing' && resolvedTrialEndsAt
-        ? Math.max(0, Math.ceil((new Date(resolvedTrialEndsAt).getTime() - Date.now()) / 86_400_000))
-        : null;
+    const lifecycle = resolveSubscriptionLifecycle({
+      businessStatus: row.status,
+      createdAt: row.createdAt,
+      trialEndsAt: row.trialEndsAt,
+      subscriptionStatus: _subStatus,
+      periodEnd: _subPeriodEnd,
+      renewedAt: _subRenewedAt,
+      subscriptionExpiresAt: row.subscriptionExpiresAt,
+    });
 
     return {
       ...row,
-      subscriptionStatus,
+      subscriptionStatus: lifecycle.status,
       trialStartedAt: row.createdAt,
-      trialEndsAt: resolvedTrialEndsAt,
+      trialEndsAt: lifecycle.trialEndsAt,
       trialExtendedAt: row.trialEndsAt,
-      trialDaysLeft,
+      trialDaysLeft: lifecycle.trialDaysLeft,
       subscription: _subPeriodEnd
         ? {
             planCode: _subStatus ? row.subscriptionPlan : null,
@@ -695,7 +625,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         `SELECT COUNT(*)::text AS cnt FROM stores`,
       );
       const n = parseInt(countRows[0]?.cnt ?? '0', 10) + 1;
-      storeCode = `STORE${String(n).padStart(3, '0')}`;
+      storeCode = `store${String(n).padStart(3, '0')}`;
     }
 
     // Check storeCode uniqueness
@@ -722,6 +652,59 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       ],
     );
 
+    return rows[0];
+  }
+
+  async updateStore(businessId: string, storeId: string, dto: import('./dto/update-store.dto').UpdateStoreDto) {
+    const [biz] = await this.platformDb.db
+      .select({ schemaName: businesses.schemaName })
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1);
+    if (!biz) throw new NotFoundException('Không tìm thấy doanh nghiệp');
+    if (!biz.schemaName) throw new BadRequestException('Schema doanh nghiệp chưa sẵn sàng');
+
+    const bizPool = this.businessDb.getPool(biz.schemaName);
+    const { rows: existing } = await bizPool.query<{ id: string }>(
+      `SELECT id FROM stores WHERE id = $1::uuid LIMIT 1`, [storeId],
+    );
+    if (!existing.length) throw new NotFoundException('Không tìm thấy cửa hàng');
+
+    if (dto.storeCode) {
+      const { rows: dup } = await bizPool.query<{ id: string }>(
+        `SELECT id FROM stores WHERE store_code = $1 AND id <> $2::uuid LIMIT 1`,
+        [dto.storeCode, storeId],
+      );
+      if (dup.length > 0) throw new ConflictException(`Mã cửa hàng "${dto.storeCode}" đã tồn tại`);
+    }
+
+    const cols: string[] = ['updated_at = NOW()'];
+    const vals: unknown[] = [];
+    const add = (col: string, v: unknown) => { vals.push(v); cols.push(`${col} = $${vals.length}`); };
+
+    if (dto.storeName !== undefined) add('store_name', dto.storeName);
+    if (dto.storeCode !== undefined) add('store_code', dto.storeCode);
+    if (dto.storeType !== undefined) add('store_type', dto.storeType);
+    if (dto.phone !== undefined) add('phone', dto.phone);
+    if (dto.email !== undefined) add('email', dto.email);
+    if (dto.address !== undefined) add('address', dto.address);
+    if (dto.district !== undefined) add('district', dto.district);
+    if (dto.city !== undefined) add('city', dto.city);
+    if (dto.timezone !== undefined) add('timezone', dto.timezone);
+    if (dto.isActive !== undefined) add('is_active', dto.isActive);
+
+    vals.push(storeId);
+    const { rows } = await bizPool.query<{
+      id: string; storeCode: string; storeName: string; storeType: string;
+      phone: string | null; email: string | null; address: string | null;
+      city: string | null; isActive: boolean;
+    }>(
+      `UPDATE stores SET ${cols.join(', ')} WHERE id = $${vals.length}::uuid
+       RETURNING id::text, store_code AS "storeCode", store_name AS "storeName",
+                 store_type AS "storeType", phone, email, address, city,
+                 is_active AS "isActive"`,
+      vals,
+    );
     return rows[0];
   }
 
@@ -933,12 +916,8 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       taxCode: dto.taxCode,
     });
     await this.assertBusinessIdentityUnique(normalizedIdentity);
-    const normalizedOwnerEmail = normalizeLoginEmail(dto.ownerEmail);
-    const normalizedOwnerPhone = normalizeLoginPhone(dto.ownerPhone);
-    await this.ensureStaffLoginUniqueGlobal({
-      email: normalizedOwnerEmail,
-      phone: normalizedOwnerPhone,
-    });
+    const normalizedOwnerEmail = normalizeEmail(dto.ownerEmail);
+    const normalizedOwnerPhone = normalizePhone(dto.ownerPhone);
 
     const { rows: schemaCheck } = await this.adminPool.query(
       `SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1`,
@@ -948,6 +927,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
 
     let schemaCreated = false;
     let businessId: string | null = null;
+    const trialEndsAt = resolveTrialEndsAt(new Date())!;
 
     try {
       // Step 1: Create schema
@@ -987,6 +967,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
           note: dto.note ?? null,
           subscriptionPlan: dto.plan ?? 'standard',
           timezoneName: dto.timezone ?? 'Asia/Ho_Chi_Minh',
+          trialEndsAt: trialEndsAt.toISOString(),
           status: 'active',
         })
         .returning({ id: businesses.id });
@@ -1006,14 +987,12 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
 
       // Step 5: Create subscription record
       try {
-        const periodEnd = new Date();
-        periodEnd.setDate(periodEnd.getDate() + 30);
         await this.platformDb.db.insert(businessSubscriptions).values({
           businessId,
           planCode: dto.plan ?? 'standard',
           status: 'active',
           currentPeriodStart: new Date().toISOString(),
-          currentPeriodEnd: periodEnd.toISOString(),
+          currentPeriodEnd: trialEndsAt.toISOString(),
         });
       } catch {
         // Subscription insert is non-critical; continue if plan_code FK fails
@@ -1061,10 +1040,26 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       // Step 9: Create owner staff member
       const passwordHash = await bcrypt.hash(dto.ownerPassword, 10);
       const ownerCode = dto.ownerStaffCode ?? 'OWN001';
+      const ownerUsername = dto.ownerUsername ?? ownerCode.toLowerCase();
       const { rows: staffRows } = await bizPool.query<{ id: string }>(
-        `INSERT INTO staff_members (staff_code, full_name, email, phone, password_hash, role, is_active, employment_status, primary_store_id)
-         VALUES ($1, $2, $3, $4, $5, 'admin', true, 'active', $6) RETURNING id`,
-        [ownerCode, dto.ownerFullName, normalizedOwnerEmail ?? null, normalizedOwnerPhone ?? null, passwordHash, storeId],
+        `WITH created_account AS (
+           INSERT INTO accounts (username, email, phone, password_hash, status)
+           VALUES ($1, $2, $3, $4, 'active')
+           RETURNING id
+         )
+         INSERT INTO staff_members (staff_code, account_id, full_name, email, phone, password_hash, role, is_active, employment_status, primary_store_id)
+         SELECT $5, id, $6, $2, $3, $4, 'admin', true, 'active', $7
+         FROM created_account
+         RETURNING id`,
+        [
+          ownerUsername,
+          normalizedOwnerEmail ?? null,
+          normalizedOwnerPhone ?? null,
+          passwordHash,
+          ownerCode,
+          dto.ownerFullName,
+          storeId,
+        ],
       );
 
       // Step 10: Bind OWNER role
@@ -1078,7 +1073,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         );
       }
 
-      return { id: businessId, schemaName, status: 'created' };
+      return { id: businessId, businessCode: dto.businessCode, schemaName, status: 'created' };
     } catch (err) {
       if (schemaCreated) {
         await this.adminPool.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`).catch(() => {});
@@ -1116,10 +1111,10 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       }
       const { rows } = await this.adminPool.query(
         `SELECT sm.id::text, sm.staff_code AS "staffCode", sm.full_name AS "fullName",
-                sm.username, sm.email, sm.phone, sm.role, sm.is_active AS "isActive",
+                ba.username, ba.email, ba.phone, sm.role, sm.is_active AS "isActive",
                 sm.employment_status AS "employmentStatus",
                 sm.primary_store_id::text AS "primaryStoreId",
-                sm.last_login_at AS "lastLoginAt", sm.created_at AS "createdAt",
+                ba.last_login_at AS "lastLoginAt", sm.created_at AS "createdAt",
                 s.store_name AS "storeName", s.store_code AS "storeCode",
                 COALESCE(
                   jsonb_agg(
@@ -1133,13 +1128,14 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
                   '[]'::jsonb
                 ) AS "storeAssignments"
          FROM "${biz.schemaName}".staff_members sm
+         LEFT JOIN "${biz.schemaName}".accounts ba ON ba.id = sm.account_id
          LEFT JOIN "${biz.schemaName}".stores s ON s.id = sm.primary_store_id
          LEFT JOIN "${biz.schemaName}".staff_role_bindings rb
            ON rb.staff_id = sm.id AND rb.status = 'active' AND rb.store_id IS NOT NULL
          LEFT JOIN "${biz.schemaName}".roles r ON r.id = rb.role_id
          LEFT JOIN "${biz.schemaName}".stores rs ON rs.id = rb.store_id
          ${where}
-         GROUP BY sm.id, s.store_name, s.store_code
+         GROUP BY sm.id, ba.username, ba.email, ba.phone, ba.last_login_at, s.store_name, s.store_code
          ORDER BY sm.created_at`,
         params,
       );
@@ -1210,13 +1206,12 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async ensureStaffUniqueFields(
-    schemaName: string,
     db: Queryable,
     fields: { staffCode?: string | null; email?: string | null; phone?: string | null; username?: string | null },
-    excludeStaffId?: string,
+    exclude?: { staffId?: string; accountId?: string | null },
   ) {
-    const excludeSql = excludeStaffId ? 'AND id <> $2::uuid' : '';
-    const excludeParams = excludeStaffId ? [excludeStaffId] : [];
+    const excludeSql = exclude?.staffId ? 'AND id <> $2::uuid' : '';
+    const excludeParams = exclude?.staffId ? [exclude.staffId] : [];
 
     if (fields.staffCode) {
       const { rows } = await db.query<{ id: string }>(
@@ -1226,13 +1221,14 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
       if (rows.length > 0) throw new ConflictException(`Mã nhân viên "${fields.staffCode}" đã tồn tại`);
     }
 
-    await this.ensureStaffLoginUniqueGlobal(
+    await this.ensureBusinessAccountLoginUnique(
+      db,
       {
         email: fields.email,
         phone: fields.phone,
         username: fields.username,
       },
-      excludeStaffId ? { schemaName, staffId: excludeStaffId } : undefined,
+      exclude?.accountId ?? undefined,
     );
   }
 
@@ -1248,8 +1244,8 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     const bizPool = this.businessDb.getPool(biz.schemaName);
     const normalizedStaffCode = dto.staffCode?.trim();
     const normalizedUsername = normalizeUsername(dto.username);
-    const normalizedEmail = normalizeLoginEmail(dto.email);
-    const normalizedPhone = normalizeLoginPhone(dto.phone);
+    const normalizedEmail = normalizeEmail(dto.email);
+    const normalizedPhone = normalizePhone(dto.phone);
 
     // Auto-generate staffCode if not provided
     let staffCode = normalizedStaffCode;
@@ -1264,7 +1260,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     const storeRoles = this.normalizeStaffStoreRoles(dto.primaryStoreId, dto.role, dto.storeRoles);
     const primaryRole = storeRoles.find((item) => item.storeId === dto.primaryStoreId)?.role ?? dto.role;
 
-    await this.ensureStaffUniqueFields(biz.schemaName, bizPool, {
+    await this.ensureStaffUniqueFields(bizPool, {
       staffCode,
       username: normalizedUsername,
       email: normalizedEmail,
@@ -1276,14 +1272,25 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     const client = await bizPool.connect();
     try {
       await client.query('BEGIN');
+      const account = await client.query<{ id: string }>(
+        `INSERT INTO accounts (username, email, phone, password_hash, status)
+         VALUES ($1, $2, $3, $4, 'active')
+         RETURNING id::text`,
+        [normalizedUsername ?? null, normalizedEmail ?? null, normalizedPhone ?? null, passwordHash],
+      );
+      const accountId = account.rows[0]?.id;
+      if (!accountId) {
+        throw new ConflictException('Không thể tạo tài khoản đăng nhập');
+      }
+
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO staff_members
-           (staff_code, username, full_name, email, phone, password_hash, role, is_active, employment_status, primary_store_id)
+           (staff_code, account_id, full_name, email, phone, password_hash, role, is_active, employment_status, primary_store_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, true, 'active', $8)
          RETURNING id::text`,
         [
           staffCode,
-          normalizedUsername ?? null,
+          accountId,
           dto.fullName,
           normalizedEmail ?? null,
           normalizedPhone ?? null,
@@ -1338,10 +1345,12 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     const { rows: existingRows } = await bizPool.query<{
       id: string;
       staff_code: string;
+      account_id: string | null;
+      password_hash: string;
       role: StaffRoleValue;
       primary_store_id: string;
     }>(
-      `SELECT id::text, staff_code, role, primary_store_id::text
+      `SELECT id::text, staff_code, account_id::text, password_hash, role, primary_store_id::text
        FROM staff_members
        WHERE id = $1::uuid
        LIMIT 1`,
@@ -1353,8 +1362,8 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     const normalizedFullName = dto.fullName === null ? null : dto.fullName?.trim();
     const normalizedStaffCode = dto.staffCode === null ? null : dto.staffCode?.trim();
     const normalizedUsername = normalizeUsername(dto.username);
-    const normalizedEmail = normalizeLoginEmail(dto.email);
-    const normalizedPhone = normalizeLoginPhone(dto.phone);
+    const normalizedEmail = normalizeEmail(dto.email);
+    const normalizedPhone = normalizePhone(dto.phone);
     const nextPrimaryStoreId = dto.primaryStoreId ?? existing.primary_store_id;
     const fallbackRole = dto.role ?? existing.role;
     const storeRoles = dto.storeRoles
@@ -1364,7 +1373,6 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     const nextMemberRole = nextRole === 'owner' ? 'admin' : nextRole;
 
     await this.ensureStaffUniqueFields(
-      biz.schemaName,
       bizPool,
       {
         staffCode: normalizedStaffCode === undefined ? undefined : normalizedStaffCode,
@@ -1372,7 +1380,7 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
         email: normalizedEmail === undefined ? undefined : normalizedEmail,
         phone: normalizedPhone === undefined ? undefined : normalizedPhone,
       },
-      staffId,
+      { staffId, accountId: existing.account_id },
     );
 
     if (dto.primaryStoreId || storeRoles) {
@@ -1391,7 +1399,6 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
 
     if (normalizedFullName !== undefined) addValue('full_name', normalizedFullName);
     if (normalizedStaffCode !== undefined) addValue('staff_code', normalizedStaffCode);
-    if (normalizedUsername !== undefined) addValue('username', normalizedUsername);
     if (normalizedEmail !== undefined) addValue('email', normalizedEmail);
     if (normalizedPhone !== undefined) addValue('phone', normalizedPhone);
     if (dto.role !== undefined || storeRoles) addValue('role', nextMemberRole);
@@ -1403,6 +1410,46 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     const client = await bizPool.connect();
     try {
       await client.query('BEGIN');
+      let accountId = existing.account_id;
+      if (!accountId) {
+        const createdAccount = await client.query<{ id: string }>(
+          `INSERT INTO accounts (username, email, phone, password_hash, status)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id::text`,
+          [
+            normalizedUsername ?? null,
+            normalizedEmail ?? null,
+            normalizedPhone ?? null,
+            dto.password ? await bcrypt.hash(dto.password, 10) : existing.password_hash,
+            dto.isActive === false ? 'disabled' : 'active',
+          ],
+        );
+        accountId = createdAccount.rows[0]?.id ?? null;
+        if (!accountId) throw new ConflictException('Không thể tạo tài khoản đăng nhập');
+        addValue('account_id', accountId);
+      } else {
+        const accountAssignments: string[] = ['updated_at = NOW()'];
+        const accountValues: unknown[] = [];
+        const addAccountValue = (column: string, value: unknown) => {
+          accountValues.push(value);
+          accountAssignments.push(`${column} = $${accountValues.length}`);
+        };
+
+        if (normalizedUsername !== undefined) addAccountValue('username', normalizedUsername);
+        if (normalizedEmail !== undefined) addAccountValue('email', normalizedEmail);
+        if (normalizedPhone !== undefined) addAccountValue('phone', normalizedPhone);
+        if (dto.password) addAccountValue('password_hash', await bcrypt.hash(dto.password, 10));
+        if (dto.isActive !== undefined) addAccountValue('status', dto.isActive ? 'active' : 'disabled');
+
+        if (accountValues.length > 0) {
+          accountValues.push(accountId);
+          await client.query(
+            `UPDATE accounts SET ${accountAssignments.join(', ')} WHERE id = $${accountValues.length}::uuid`,
+            accountValues,
+          );
+        }
+      }
+
       values.push(staffId);
       await client.query(
         `UPDATE staff_members SET ${assignments.join(', ')} WHERE id = $${values.length}::uuid`,
@@ -1456,5 +1503,49 @@ export class BusinessesService implements OnModuleInit, OnModuleDestroy {
     }
 
     return { id, status: dto.status };
+  }
+
+  async updatePlan(id: string, plan: string, actorId?: string) {
+    const VALID_PLANS = ['starter', 'standard', 'professional', 'enterprise'];
+    if (!VALID_PLANS.includes(plan)) {
+      throw new BadRequestException('Gói dịch vụ không hợp lệ');
+    }
+
+    const [business] = await this.platformDb.db
+      .select({ id: businesses.id })
+      .from(businesses)
+      .where(eq(businesses.id, id))
+      .limit(1);
+    if (!business) throw new NotFoundException('Không tìm thấy doanh nghiệp');
+
+    const doUpdate = (db: typeof this.platformDb.db) =>
+      db.update(businesses).set({ subscriptionPlan: plan, updatedAt: new Date().toISOString() }).where(eq(businesses.id, id));
+
+    if (actorId) {
+      await this.platformDb.runWithActor(actorId, doUpdate);
+    } else {
+      await doUpdate(this.platformDb.db);
+    }
+
+    return { id, plan };
+  }
+
+  async delete(id: string) {
+    const [business] = await this.platformDb.db
+      .select({ id: businesses.id, schemaName: businesses.schemaName })
+      .from(businesses)
+      .where(eq(businesses.id, id))
+      .limit(1);
+    if (!business) throw new NotFoundException('Không tìm thấy doanh nghiệp');
+
+    if (business.schemaName) {
+      await this.adminPool.query(`DROP SCHEMA IF EXISTS "${business.schemaName}" CASCADE`);
+    }
+
+    await this.platformDb.db.delete(businessSubscriptions).where(eq(businessSubscriptions.businessId, id));
+    await this.platformDb.db.delete(accountBusinesses).where(eq(accountBusinesses.businessId, id));
+    await this.platformDb.db.delete(businesses).where(eq(businesses.id, id));
+
+    return { ok: true };
   }
 }

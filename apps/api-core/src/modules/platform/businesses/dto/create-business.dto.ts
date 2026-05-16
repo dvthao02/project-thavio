@@ -32,6 +32,7 @@ export const CreateBusinessSchema = z.object({
   }),
   ownerEmail: optionalEmail,
   ownerPhone: optionalText,
+  ownerUsername: z.preprocess(emptyToUndefined, z.string().regex(/^[a-z0-9_.]{3,50}$/, 'Username chỉ dùng chữ thường, số, dấu chấm và gạch dưới, 3–50 ký tự').optional()),
   ownerStaffCode: optionalText,
   ownerPassword: z.string().min(8, 'Mật khẩu tối thiểu 8 ký tự'),
   ownerFullName: z.string().trim().min(1, 'Tên chủ sở hữu là bắt buộc'),

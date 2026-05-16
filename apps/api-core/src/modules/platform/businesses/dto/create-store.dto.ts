@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const CreateStoreSchema = z.object({
   storeName: z.string().min(1, 'Tên cửa hàng là bắt buộc'),
-  storeCode: z.string().regex(/^[A-Z0-9_]{2,30}$/, 'Mã phải 2-30 ký tự IN HOA, số, hoặc gạch dưới').optional(),
+  storeCode: z.string().regex(/^[a-z0-9_]{2,30}$/, 'Mã phải 2-30 ký tự thường, số, hoặc gạch dưới').optional(),
   storeType: z.enum(['retail', 'warehouse', 'office', 'kiosk', 'fnb']).default('retail'),
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')).transform((v) => v || undefined),

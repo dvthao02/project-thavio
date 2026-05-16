@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 export const LoginSchema = z.object({
-  // Accept email, username, or phone number
-  identifier: z.string().min(1),
+  // Platform account identifier: email, username, or phone (global account namespace)
+  identifier: z.string().trim().min(1),
   password: z.string().min(1),
 });
 

@@ -165,6 +165,7 @@ function SkeletonRows() {
 export default function TrialsPage() {
   const [tab, setTab] = useState<TrialTab>('all');
 
+  const [refreshing, setRefreshing] = useState(false);
   const { data, isLoading, isError, isFetching, refetch } = useQuery<ListResponse>({
     queryKey: ['subscription-trials'],
     queryFn: () => api.get('/platform/businesses', { params: { limit: 100 } }).then((res) => res.data),
@@ -225,10 +226,11 @@ export default function TrialsPage() {
         </div>
         <button
           type="button"
-          onClick={() => refetch()}
-          className="inline-flex items-center gap-2 rounded-md border border-input px-3 py-2 text-sm font-medium transition hover:bg-muted"
+          disabled={refreshing}
+          onClick={async () => { setRefreshing(true); await refetch(); setRefreshing(false); }}
+          className="inline-flex items-center gap-2 rounded-md border border-input px-3 py-2 text-sm font-medium transition hover:bg-muted disabled:opacity-60"
         >
-          <RotateCcw size={16} className={isFetching ? 'animate-spin' : ''} />
+          <RotateCcw size={16} className={refreshing ? 'animate-spin' : ''} />
           Làm mới
         </button>
       </div>

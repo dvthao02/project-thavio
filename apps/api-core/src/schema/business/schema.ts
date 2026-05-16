@@ -40,10 +40,29 @@ export const businessPeriodsInBusinessTemplate = businessTemplate.table("busines
 	check("chk_period_type", sql`(period_type)::text = ANY (ARRAY['day'::text, 'week'::text, 'month'::text, 'quarter'::text, 'year'::text])`),
 ]);
 
+export const accountsInBusinessTemplate = businessTemplate.table("accounts", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	accountCode: varchar("account_code", { length: 30 }),
+	username: varchar({ length: 80 }),
+	email: varchar({ length: 255 }),
+	phone: varchar({ length: 30 }),
+	passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+	status: varchar({ length: 20 }).default('active').notNull(),
+	lastLoginAt: timestamp("last_login_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("accounts_account_code_unique").using("btree", table.accountCode.asc().nullsLast().op("text_ops")).where(sql`(account_code IS NOT NULL)`),
+	uniqueIndex("accounts_email_unique").using("btree", sql`lower((email)::text)`).where(sql`(email IS NOT NULL)`),
+	uniqueIndex("accounts_phone_unique").using("btree", table.phone.asc().nullsLast().op("text_ops")).where(sql`(phone IS NOT NULL)`),
+	uniqueIndex("accounts_username_unique").using("btree", sql`lower((username)::text)`).where(sql`(username IS NOT NULL)`),
+	check("chk_accounts_status", sql`(status)::text = ANY (ARRAY['active'::text, 'locked'::text, 'disabled'::text])`),
+]);
+
 export const staffMembersInBusinessTemplate = businessTemplate.table("staff_members", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	staffCode: varchar("staff_code", { length: 30 }).notNull(),
-	username: varchar({ length: 80 }),
+	accountId: uuid("account_id"),
 	fullName: varchar("full_name", { length: 255 }).notNull(),
 	displayName: varchar("display_name", { length: 100 }),
 	phone: varchar({ length: 30 }),
@@ -70,11 +89,13 @@ export const staffMembersInBusinessTemplate = businessTemplate.table("staff_memb
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
-	uniqueIndex("staff_members_email_unique").using("btree", table.email.asc().nullsLast().op("text_ops")).where(sql`(email IS NOT NULL)`),
-	uniqueIndex("staff_members_phone_unique").using("btree", table.phone.asc().nullsLast().op("text_ops")).where(sql`(phone IS NOT NULL)`),
 	uniqueIndex("staff_members_staff_code_unique").using("btree", table.staffCode.asc().nullsLast().op("text_ops")),
-	uniqueIndex("staff_members_username_unique").using("btree", sql`lower((username)::text)`).where(sql`(username IS NOT NULL)`),
 	uniqueIndex("uq_staff_members_staff_code").using("btree", table.staffCode.asc().nullsLast().op("text_ops")),
+	foreignKey({
+			columns: [table.accountId],
+			foreignColumns: [accountsInBusinessTemplate.id],
+			name: "staff_members_account_id_fkey"
+		}),
 	foreignKey({
 			columns: [table.departmentId],
 			foreignColumns: [departmentsInBusinessTemplate.id],

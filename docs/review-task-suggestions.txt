@@ -1,3 +1,7 @@
+<<<<<<< ours
+=======
+<<<<<<< ours
+>>>>>>> theirs
 Code review task suggestions (2026-05-15)
 
 1) Typo fix task
@@ -19,3 +23,29 @@ Code review task suggestions (2026-05-15)
 - Scope: repository CI/testing workflow
 - Problem: No focused regression tests appear to protect permission middleware behavior and admin location hooks.
 - Task: Add a lightweight CI check set: (a) NestJS e2e tests for platform middleware/guard allowlist + scope enforcement, (b) frontend unit tests for vn-address hooks with edge inputs, and (c) run both in PR pipeline with fast fail summary.
+<<<<<<< ours
+=======
+=======
+Account/Login hardening backlog (2026-05-16)
+
+1) Typo + terminology cleanup
+- Scope: docs/contracts/PLATFORM_ADMIN_UI.md and auth DTO comments.
+- Problem: docs mix non-diacritic Vietnamese and ambiguous term "username" for business login though code authenticates by staff_code.
+- Task: normalize wording to explicitly separate platform account identifiers (email/username/phone) vs business account identifiers (email/staff_code/phone).
+
+2) Bug fix
+- Scope: apps/api-core/src/modules/platform/auth/auth.service.ts
+- Problem: platform login compares email exactly as input; mixed-case email input can fail unexpectedly.
+- Task: trim input and normalize email candidate to lowercase before account lookup while preserving username/phone matching.
+
+3) Docs/code alignment
+- Scope: apps/api-core/src/modules/business/auth/* and architecture docs.
+- Problem: current business auth comments say "username" but SQL query uses staff_code.
+- Task: align DTO comments and API contract wording to staff_code so frontend/backends implement the same identifier semantics.
+
+4) Test process improvement
+- Scope: apps/api-core auth modules.
+- Problem: no automated checks for identifier normalization and platform/business auth boundary behavior.
+- Task: add fast unit/e2e checks for: (a) platform login email case normalization, (b) required businessCode for business login, (c) business login using staff_code.
+>>>>>>> theirs
+>>>>>>> theirs

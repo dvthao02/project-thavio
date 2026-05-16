@@ -748,12 +748,15 @@ export default function AuditLogsPage() {
     }
   };
 
-  const refresh = () => {
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    setRefreshing(true);
     if (mode === 'events') {
-      eventsQuery.refetch();
+      await eventsQuery.refetch();
     } else {
-      logsQuery.refetch();
+      await logsQuery.refetch();
     }
+    setRefreshing(false);
   };
 
   const exportCurrentData = () => {
@@ -841,10 +844,11 @@ export default function AuditLogsPage() {
           </button>
           <button
             type="button"
+            disabled={refreshing}
             onClick={refresh}
-            className="inline-flex items-center gap-2 rounded-md border border-input bg-card px-3 py-2 text-sm font-medium transition hover:bg-muted"
+            className="inline-flex items-center gap-2 rounded-md border border-input bg-card px-3 py-2 text-sm font-medium transition hover:bg-muted disabled:opacity-60"
           >
-            <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} />
+            <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
             Làm mới
           </button>
         </div>

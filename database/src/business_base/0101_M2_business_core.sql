@@ -43,11 +43,31 @@ INSERT INTO departments (department_code,department_name) VALUES
   ('PV','Phục Vụ'),('BEP','Bếp / Pha Chế'),('KHO','Kho'),('MKT','Marketing')
 ON CONFLICT DO NOTHING;
 
+-- Tài khoản đăng nhập trong phạm vi doanh nghiệp
+CREATE TABLE IF NOT EXISTS accounts (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_code   VARCHAR(30),
+  username       VARCHAR(80),
+  email          VARCHAR(255),
+  phone          VARCHAR(30),
+  password_hash  VARCHAR(255) NOT NULL,
+  status         VARCHAR(20) NOT NULL DEFAULT 'active',
+  last_login_at  TIMESTAMPTZ,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT chk_accounts_status CHECK (status = ANY(ARRAY['active','locked','disabled']))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_username_unique ON accounts (LOWER(username)) WHERE username IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_unique ON accounts (LOWER(email)) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_phone_unique ON accounts (phone) WHERE phone IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_account_code_unique ON accounts (account_code) WHERE account_code IS NOT NULL;
+
 -- Nhân viên
 CREATE TABLE IF NOT EXISTS staff_members (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   staff_code          VARCHAR(30)  NOT NULL,  -- AUTO: NV000001
-  username            VARCHAR(80),
+  account_id          UUID UNIQUE REFERENCES accounts(id),
   full_name           VARCHAR(255) NOT NULL,
   display_name        VARCHAR(100),
   phone               VARCHAR(30),
@@ -77,10 +97,6 @@ CREATE TABLE IF NOT EXISTS staff_members (
   CONSTRAINT chk_contract_type    CHECK (contract_type = ANY(ARRAY['full_time','part_time','freelance','probation'])),
   CONSTRAINT chk_emp_status       CHECK (employment_status = ANY(ARRAY['active','inactive','terminated','on_leave']))
 );
-
-CREATE UNIQUE INDEX IF NOT EXISTS staff_members_username_unique
-  ON staff_members (LOWER(username))
-  WHERE username IS NOT NULL;
 
 -- Khách hàng
 CREATE TABLE IF NOT EXISTS customers (

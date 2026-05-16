@@ -41,14 +41,16 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, meta: AuthAuditMeta = {}) {
-    const { identifier, password } = dto;
+    const identifier = dto.identifier.trim();
+    const identifierForEmail = identifier.toLowerCase();
+    const { password } = dto;
 
     const [account] = await this.platformDb.db
       .select()
       .from(accounts)
       .where(
         or(
-          eq(accounts.email!, identifier),
+          eq(accounts.email!, identifierForEmail),
           eq(accounts.username, identifier),
           eq(accounts.phone!, identifier),
         ),

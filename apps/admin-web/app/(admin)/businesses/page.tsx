@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   AlertTriangle,
   Building2,
   CheckCircle2,
   Clock3,
-  Eye,
   Plus,
   RefreshCw,
   Search,
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
+import { NewBusinessModal } from './_components/NewBusinessModal';
 
 type AccessStatus = 'active' | 'pending' | 'suspended' | 'inactive' | string;
 type TrialFilter = '' | 'trialing' | 'expiring' | 'expired';
@@ -75,7 +76,7 @@ const TRIAL_DAYS = 10;
 
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
   active: { label: 'Hoạt động', cls: 'bg-emerald-500/10 text-emerald-700' },
-  pending: { label: 'Chờ khởi tạo', cls: 'bg-amber-500/10 text-amber-700' },
+  pending: { label: 'Chờ xác thực', cls: 'bg-amber-500/10 text-amber-700' },
   suspended: { label: 'Tạm khóa', cls: 'bg-red-500/10 text-red-700' },
   inactive: { label: 'Ngừng hoạt động', cls: 'bg-slate-500/10 text-slate-600' },
 };
@@ -209,12 +210,16 @@ function CompactStat({
 }
 
 export default function BusinessesPage() {
+  const router = useRouter();
+  const qc = useQueryClient();
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [trial, setTrial] = useState<TrialFilter>('');
   const [assigneeId, setAssigneeId] = useState('');
   const [page, setPage] = useState(1);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const { permissions } = useAuthStore();
   const canCreate = permissions.includes('platform.business.create');
 
@@ -224,7 +229,7 @@ export default function BusinessesPage() {
   }, [searchInput]);
 
   const { data, isLoading, isFetching, refetch } = useQuery<ListResponse>({
-    queryKey: ['businesses', { search, status, assigneeId, page }],
+    queryKey: ['businesses', { search, status, assigneeId, trial, page }],
     queryFn: () =>
       api
         .get('/platform/businesses', {
@@ -232,6 +237,7 @@ export default function BusinessesPage() {
             search: search || undefined,
             status: status || undefined,
             assigneeId: assigneeId || undefined,
+            trial: trial || undefined,
             page,
             limit: PAGE_SIZE,
           },
@@ -241,7 +247,7 @@ export default function BusinessesPage() {
   });
 
   const { data: summaryData, refetch: refetchSummary } = useQuery<BusinessSummary>({
-    queryKey: ['businesses-summary', { search, status, assigneeId }],
+    queryKey: ['businesses-summary', { search, status, assigneeId, trial }],
     queryFn: () =>
       api
         .get('/platform/businesses/summary', {
@@ -249,6 +255,7 @@ export default function BusinessesPage() {
             search: search || undefined,
             status: status || undefined,
             assigneeId: assigneeId || undefined,
+            trial: trial || undefined,
           },
         })
         .then((res) => res.data),
@@ -311,6 +318,7 @@ export default function BusinessesPage() {
   const rangeEnd = Math.min(page * PAGE_SIZE, total);
 
   return (
+    <>
     <div className="space-y-4">
       <div className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -324,23 +332,26 @@ export default function BusinessesPage() {
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                refetch();
-                refetchSummary();
+              disabled={refreshing}
+              onClick={async () => {
+                setRefreshing(true);
+                await Promise.all([refetch(), refetchSummary()]);
+                setRefreshing(false);
               }}
-              className="inline-flex items-center gap-2 rounded-md border border-input px-3 py-2 text-sm font-medium transition hover:bg-muted"
+              className="inline-flex items-center gap-2 rounded-md border border-input px-3 py-2 text-sm font-medium transition hover:bg-muted disabled:opacity-60"
             >
-              <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} />
+              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
               Làm mới
             </button>
             {canCreate ? (
-              <Link
-                href="/businesses/new"
+              <button
+                type="button"
+                onClick={() => setCreateOpen(true)}
                 className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
               >
                 <Plus size={16} />
                 Tạo doanh nghiệp
-              </Link>
+              </button>
             ) : null}
           </div>
         </div>
@@ -367,7 +378,7 @@ export default function BusinessesPage() {
           >
             <option value="">Trạng thái</option>
             <option value="active">Hoạt động</option>
-            <option value="pending">Chờ khởi tạo</option>
+            <option value="pending">Chờ xác thực</option>
             <option value="suspended">Tạm khóa</option>
             <option value="inactive">Ngừng hoạt động</option>
           </select>
@@ -468,7 +479,7 @@ export default function BusinessesPage() {
             return (
               <Link
                 key={business.id}
-                href={`/businesses/${business.id}`}
+                href={`/businesses/${business.businessCode}`}
                 className="flex items-start gap-3 p-4 transition-colors hover:bg-muted/20"
               >
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-bold uppercase text-primary">
@@ -524,15 +535,14 @@ export default function BusinessesPage() {
               <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-muted-foreground">Gói</th>
               <th className="w-[17%] px-4 py-3 text-left text-xs font-medium text-muted-foreground">Trạng thái</th>
               <th className="w-[15%] px-4 py-3 text-left text-xs font-medium text-muted-foreground">Phụ trách</th>
-              <th className="w-[8%] px-4 py-3 text-left text-xs font-medium text-muted-foreground">Ngày tạo</th>
-              <th className="w-[5%] px-4 py-3 text-right text-xs font-medium text-muted-foreground">Xem</th>
+              <th className="w-[13%] px-4 py-3 text-left text-xs font-medium text-muted-foreground">Ngày tạo</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {isLoading ? (
               Array.from({ length: 5 }).map((_, rowIndex) => (
                 <tr key={rowIndex}>
-                  {Array.from({ length: 7 }).map((__, cellIndex) => (
+                  {Array.from({ length: 6 }).map((__, cellIndex) => (
                     <td key={cellIndex} className="px-4 py-4">
                       <div className="h-4 animate-pulse rounded bg-muted" />
                     </td>
@@ -541,7 +551,7 @@ export default function BusinessesPage() {
               ))
             ) : filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-5 py-12 text-center">
+                <td colSpan={6} className="px-5 py-12 text-center">
                   <Building2 size={32} className="mx-auto mb-2 text-muted-foreground/40" />
                   <p className="text-sm font-medium text-foreground">Không tìm thấy doanh nghiệp phù hợp</p>
                   <p className="mt-1 text-xs text-muted-foreground">Thử đổi bộ lọc hoặc từ khóa tìm kiếm.</p>
@@ -564,7 +574,8 @@ export default function BusinessesPage() {
                     : subscriptionConfig.cls;
 
                 return (
-                  <tr key={business.id} className="transition-colors hover:bg-muted/20">
+                  <tr key={business.id} className="cursor-pointer transition-colors hover:bg-muted/20"
+                    onClick={() => window.location.href = `/businesses/${business.businessCode}`}>
                     <td className="px-5 py-3.5 align-middle">
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-bold uppercase text-primary">
@@ -640,15 +651,6 @@ export default function BusinessesPage() {
                     <td className="whitespace-nowrap px-4 py-3.5 align-middle text-xs text-muted-foreground">
                       {formatDate(business.createdAt)}
                     </td>
-                    <td className="px-4 py-3.5 text-right align-middle">
-                      <Link
-                        href={`/businesses/${business.id}`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-input text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                        title="Xem chi tiết"
-                      >
-                        <Eye size={14} />
-                      </Link>
-                    </td>
                   </tr>
                 );
               })
@@ -685,5 +687,17 @@ export default function BusinessesPage() {
         </div>
       </div>
     </div>
+
+    {createOpen && (
+      <NewBusinessModal
+        onClose={() => setCreateOpen(false)}
+        onCreated={(id) => {
+          setCreateOpen(false);
+          qc.invalidateQueries({ queryKey: ['businesses'] });
+          router.push(`/businesses/${id}`);
+        }}
+      />
+    )}
+    </>
   );
 }

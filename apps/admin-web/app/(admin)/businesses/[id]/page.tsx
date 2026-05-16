@@ -201,6 +201,7 @@ const STORE_TYPES = [
 const DEFAULT_STORE_FORM = {
   storeName: '', storeCode: '', storeType: 'retail',
   phone: '', email: '', address: '', district: '', city: '',
+  isActive: true as boolean | undefined,
 };
 
 const DEFAULT_STAFF_EDIT_FORM = {
@@ -271,6 +272,10 @@ export default function BusinessDetailPage() {
   const [tab, setTab] = useState<'info' | 'stores' | 'subscription' | 'assignees'>('info');
   const [editOpen, setEditOpen] = useState(false);
   const [suspendConfirm, setSuspendConfirm] = useState<'suspend' | 'activate' | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteCodeInput, setDeleteCodeInput] = useState('');
+  const [planChangeOpen, setPlanChangeOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState('');
   const [extendTrialDays, setExtendTrialDays] = useState(7);
   const [addAssigneeOpen, setAddAssigneeOpen] = useState(false);
   const [assigneeSearch, setAssigneeSearch] = useState('');
@@ -282,6 +287,8 @@ export default function BusinessDetailPage() {
   const [showStaffPwd, setShowStaffPwd] = useState(false);
   const [addStoreOpen, setAddStoreOpen] = useState(false);
   const [storeForm, setStoreForm] = useState(DEFAULT_STORE_FORM);
+  const [editingStore, setEditingStore] = useState<StoreItem | null>(null);
+  const [storeEditForm, setStoreEditForm] = useState(DEFAULT_STORE_FORM);
 
   const [editForm, setEditForm] = useState({
     legalName: '', brandName: '', email: '', phone: '',
@@ -290,10 +297,13 @@ export default function BusinessDetailPage() {
 
   useEscape(editOpen, () => setEditOpen(false));
   useEscape(suspendConfirm !== null, () => setSuspendConfirm(null));
+  useEscape(deleteConfirm, () => { setDeleteConfirm(false); setDeleteCodeInput(''); });
+  useEscape(planChangeOpen, () => setPlanChangeOpen(false));
   useEscape(addAssigneeOpen, () => { setAddAssigneeOpen(false); setAssigneeSearch(''); });
   useEscape(addStaffStoreId !== null, () => { setAddStaffStoreId(null); setStaffForm(DEFAULT_STAFF_FORM); });
   useEscape(editingStaff !== null, () => { setEditingStaff(null); setStaffEditForm(DEFAULT_STAFF_EDIT_FORM); });
   useEscape(addStoreOpen, () => { setAddStoreOpen(false); setStoreForm(DEFAULT_STORE_FORM); });
+  useEscape(editingStore !== null, () => { setEditingStore(null); setStoreEditForm(DEFAULT_STORE_FORM); });
 
   // ── Queries ──
 
@@ -302,22 +312,24 @@ export default function BusinessDetailPage() {
     queryFn: () => api.get(`/platform/businesses/${id}`).then((r) => r.data),
   });
 
+  const bid = business?.id ?? '';
+
   const { data: storesData } = useQuery<{ data: StoreItem[] }>({
     queryKey: ['business-stores', id],
-    queryFn: () => api.get(`/platform/businesses/${id}/stores`).then((r) => r.data),
-    enabled: tab === 'stores',
+    queryFn: () => api.get(`/platform/businesses/${bid}/stores`).then((r) => r.data),
+    enabled: !!business && tab === 'stores',
   });
 
   const { data: staffData } = useQuery<{ data: StaffMember[] }>({
     queryKey: ['business-staff', id],
-    queryFn: () => api.get(`/platform/businesses/${id}/staff`).then((r) => r.data),
-    enabled: tab === 'stores',
+    queryFn: () => api.get(`/platform/businesses/${bid}/staff`).then((r) => r.data),
+    enabled: !!business && tab === 'stores',
   });
 
   const { data: assigneesData } = useQuery<{ data: Assignee[] }>({
     queryKey: ['business-assignees', id],
-    queryFn: () => api.get(`/platform/businesses/${id}/assignees`).then((r) => r.data),
-    enabled: tab === 'assignees' && canViewAssignees,
+    queryFn: () => api.get(`/platform/businesses/${bid}/assignees`).then((r) => r.data),
+    enabled: !!business && tab === 'assignees' && canViewAssignees,
   });
 
   const { data: accountsData } = useQuery<{ data: AccountOption[] }>({
@@ -338,7 +350,7 @@ export default function BusinessDetailPage() {
   // ── Mutations ──
 
   const updateMut = useMutation({
-    mutationFn: (body: typeof editForm) => api.patch(`/platform/businesses/${id}`, body).then((r) => r.data),
+    mutationFn: (body: typeof editForm) => api.patch(`/platform/businesses/${bid}`, body).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business', id] });
       qc.invalidateQueries({ queryKey: ['businesses'] });
@@ -348,7 +360,7 @@ export default function BusinessDetailPage() {
 
   const statusMut = useMutation({
     mutationFn: (status: string) =>
-      api.patch(`/platform/businesses/${id}/status`, { status }).then((r) => r.data),
+      api.patch(`/platform/businesses/${bid}/status`, { status }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business', id] });
       qc.invalidateQueries({ queryKey: ['businesses'] });
@@ -358,7 +370,7 @@ export default function BusinessDetailPage() {
 
   const addAssigneeMut = useMutation({
     mutationFn: (accountId: string) =>
-      api.post(`/platform/businesses/${id}/assignees`, { accountId, accessLevel: 'admin' }).then((r) => r.data),
+      api.post(`/platform/businesses/${bid}/assignees`, { accountId, accessLevel: 'admin' }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business-assignees', id] });
       setAddAssigneeOpen(false);
@@ -368,13 +380,13 @@ export default function BusinessDetailPage() {
 
   const removeAssigneeMut = useMutation({
     mutationFn: (accountId: string) =>
-      api.delete(`/platform/businesses/${id}/assignees/${accountId}`).then((r) => r.data),
+      api.delete(`/platform/businesses/${bid}/assignees/${accountId}`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business-assignees', id] }),
   });
 
   const extendTrialMut = useMutation({
     mutationFn: (days: number) =>
-      api.post(`/platform/businesses/${id}/trial/extend`, { days }).then((r) => r.data),
+      api.post(`/platform/businesses/${bid}/trial/extend`, { days }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business', id] });
       qc.invalidateQueries({ queryKey: ['businesses'] });
@@ -383,7 +395,7 @@ export default function BusinessDetailPage() {
 
   const createStaffMut = useMutation({
     mutationFn: (body: object) =>
-      api.post(`/platform/businesses/${id}/staff`, body).then((r) => r.data),
+      api.post(`/platform/businesses/${bid}/staff`, body).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business-staff', id] });
       qc.invalidateQueries({ queryKey: ['business-stores', id] });
@@ -394,7 +406,7 @@ export default function BusinessDetailPage() {
 
   const updateStaffMut = useMutation({
     mutationFn: ({ staffId, body }: { staffId: string; body: object }) =>
-      api.patch(`/platform/businesses/${id}/staff/${staffId}`, body).then((r) => r.data),
+      api.patch(`/platform/businesses/${bid}/staff/${staffId}`, body).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business-staff', id] });
       qc.invalidateQueries({ queryKey: ['business-stores', id] });
@@ -405,12 +417,39 @@ export default function BusinessDetailPage() {
 
   const createStoreMut = useMutation({
     mutationFn: (body: object) =>
-      api.post(`/platform/businesses/${id}/stores`, body).then((r) => r.data),
+      api.post(`/platform/businesses/${bid}/stores`, body).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business-stores', id] });
       qc.invalidateQueries({ queryKey: ['businesses'] });
       setAddStoreOpen(false);
       setStoreForm(DEFAULT_STORE_FORM);
+    },
+  });
+
+  const updateStoreMut = useMutation({
+    mutationFn: ({ storeId, body }: { storeId: string; body: object }) =>
+      api.patch(`/platform/businesses/${bid}/stores/${storeId}`, body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['business-stores', id] });
+      setEditingStore(null);
+      setStoreEditForm(DEFAULT_STORE_FORM);
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: () => api.delete(`/platform/businesses/${bid}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+      router.push('/businesses');
+    },
+  });
+
+  const planMut = useMutation({
+    mutationFn: (plan: string) => api.patch(`/platform/businesses/${bid}/plan`, { plan }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['business', id] });
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+      setPlanChangeOpen(false);
     },
   });
 
@@ -545,7 +584,7 @@ export default function BusinessDetailPage() {
           </div>
         </div>
         {canUpdate && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <button
               onClick={openEdit}
               className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-2 text-sm font-medium hover:bg-muted transition"
@@ -567,6 +606,12 @@ export default function BusinessDetailPage() {
                 <LockOpen size={14} /> Kích hoạt
               </button>
             ) : null}
+            <button
+              onClick={() => { setDeleteCodeInput(''); setDeleteConfirm(true); }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition"
+            >
+              <Trash2 size={14} /> Xóa
+            </button>
           </div>
         )}
       </div>
@@ -731,13 +776,36 @@ export default function BusinessDetailPage() {
                       </div>
                     </div>
                     {canUpdate && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setAddStaffStoreId(s.id); setStaffForm({ ...DEFAULT_STAFF_FORM }); }}
-                        className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition shrink-0"
-                      >
-                        <Plus size={12} /> Thêm nhân viên
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingStore(s);
+                            setStoreEditForm({
+                              storeName: s.storeName,
+                              storeCode: s.storeCode,
+                              storeType: s.storeType,
+                              phone: s.phone ?? '',
+                              email: s.email ?? '',
+                              address: s.address ?? '',
+                              district: '',
+                              city: s.city ?? '',
+                              isActive: s.isActive,
+                            });
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition"
+                        >
+                          <Edit2 size={12} /> Sửa
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setAddStaffStoreId(s.id); setStaffForm({ ...DEFAULT_STAFF_FORM }); }}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition"
+                        >
+                          <Plus size={12} /> Thêm nhân viên
+                        </button>
+                      </div>
                     )}
                     <div className="text-muted-foreground shrink-0 ml-1">
                       {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -847,7 +915,17 @@ export default function BusinessDetailPage() {
       {tab === 'subscription' && (
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-lg border border-border bg-card p-4">
-            <h3 className="text-sm font-semibold text-foreground mb-1">Gói hiện tại</h3>
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">Gói hiện tại</h3>
+              {canUpdate && (
+                <button
+                  onClick={() => { setSelectedPlan(business.subscriptionPlan ?? 'standard'); setPlanChangeOpen(true); }}
+                  className="inline-flex items-center gap-1 rounded-md border border-input px-2.5 py-1 text-xs font-medium hover:bg-muted transition"
+                >
+                  <Edit2 size={12} /> Đổi gói
+                </button>
+              )}
+            </div>
             <InfoRow
               label="Gói dịch vụ"
               value={
@@ -1174,6 +1252,104 @@ export default function BusinessDetailPage() {
                 }`}
               >
                 {statusMut.isPending ? 'Đang xử lý...' : suspendConfirm === 'suspend' ? 'Tạm khóa' : 'Kích hoạt'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Delete Business */}
+      {deleteConfirm && canUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-xl">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500/10">
+                <AlertTriangle size={18} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Xóa doanh nghiệp?</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Thao tác này <strong>không thể khôi phục</strong>. Toàn bộ dữ liệu bao gồm cửa hàng, nhân viên và lịch sử sẽ bị xóa vĩnh viễn.
+                </p>
+              </div>
+            </div>
+            <p className="mb-2 text-xs text-muted-foreground">
+              Nhập mã doanh nghiệp <code className="bg-muted px-1 py-0.5 rounded">{business.businessCode}</code> để xác nhận:
+            </p>
+            <input
+              autoFocus
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-400/30"
+              value={deleteCodeInput}
+              onChange={(e) => setDeleteCodeInput(e.target.value)}
+              placeholder={business.businessCode}
+            />
+            {deleteMut.isError && (
+              <p className="mt-2 text-xs text-destructive">
+                {getApiErrorMessage(deleteMut.error, 'Lỗi khi xóa doanh nghiệp.')}
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => { setDeleteConfirm(false); setDeleteCodeInput(''); }}
+                className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={() => deleteMut.mutate()}
+                disabled={deleteCodeInput !== business.businessCode || deleteMut.isPending}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-40 transition"
+              >
+                {deleteMut.isPending ? 'Đang xóa...' : 'Xóa vĩnh viễn'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Change Plan */}
+      {planChangeOpen && canUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-xs rounded-lg border border-border bg-background p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">Đổi gói dịch vụ</h3>
+              <button onClick={() => setPlanChangeOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-2">
+              {[
+                { value: 'starter', label: 'Starter' },
+                { value: 'standard', label: 'Tiêu chuẩn' },
+                { value: 'professional', label: 'Professional' },
+                { value: 'enterprise', label: 'Enterprise' },
+              ].map((p) => (
+                <label key={p.value} className={`flex cursor-pointer items-center gap-3 rounded-md border px-4 py-3 transition ${
+                  selectedPlan === p.value ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
+                }`}>
+                  <input type="radio" name="plan" value={p.value} checked={selectedPlan === p.value}
+                    onChange={() => setSelectedPlan(p.value)} className="accent-primary" />
+                  <span className="text-sm font-medium text-foreground">{p.label}</span>
+                  {business.subscriptionPlan === p.value && (
+                    <span className="ml-auto text-xs text-muted-foreground">Hiện tại</span>
+                  )}
+                </label>
+              ))}
+            </div>
+            {planMut.isError && (
+              <p className="mt-3 text-xs text-destructive">
+                {getApiErrorMessage(planMut.error, 'Lỗi khi đổi gói.')}
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setPlanChangeOpen(false)}
+                className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition">Hủy</button>
+              <button
+                onClick={() => planMut.mutate(selectedPlan)}
+                disabled={selectedPlan === business.subscriptionPlan || planMut.isPending}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
+              >
+                {planMut.isPending ? 'Đang lưu...' : 'Xác nhận'}
               </button>
             </div>
           </div>
@@ -1516,10 +1692,10 @@ export default function BusinessDetailPage() {
                   <input
                     className={INPUT}
                     value={storeForm.storeCode}
-                    onChange={(e) => setStoreForm((f) => ({ ...f, storeCode: e.target.value.toUpperCase() }))}
+                    onChange={(e) => setStoreForm((f) => ({ ...f, storeCode: e.target.value.toLowerCase() }))}
                     placeholder="Tự động nếu để trống"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">2–30 ký tự IN HOA, số, gạch dưới</p>
+                  <p className="text-xs text-muted-foreground mt-1">2–30 ký tự thường, số, gạch dưới</p>
                 </Field>
                 <Field label="Loại cửa hàng">
                   <select
@@ -1614,6 +1790,124 @@ export default function BusinessDetailPage() {
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
               >
                 {createStoreMut.isPending ? 'Đang tạo...' : 'Tạo cửa hàng'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Store */}
+      {editingStore !== null && canUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg border border-border bg-background p-6 shadow-xl">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">Sửa cửa hàng</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  <code className="bg-muted px-1 py-0.5 rounded">{editingStore.storeCode}</code>
+                </p>
+              </div>
+              <button onClick={() => { setEditingStore(null); setStoreEditForm(DEFAULT_STORE_FORM); }}
+                className="text-muted-foreground hover:text-foreground"><X size={18} /></button>
+            </div>
+
+            <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Tên cửa hàng *">
+                  <input autoFocus className={INPUT} value={storeEditForm.storeName}
+                    onChange={(e) => setStoreEditForm((f) => ({ ...f, storeName: e.target.value }))}
+                    placeholder="Chi nhánh chính" />
+                </Field>
+                <Field label="Mã cửa hàng" hint="2–30 ký tự IN HOA, số, gạch dưới">
+                  <input className={INPUT} value={storeEditForm.storeCode}
+                    onChange={(e) => setStoreEditForm((f) => ({ ...f, storeCode: e.target.value.toLowerCase() }))}
+                    placeholder="STORE001" />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Loại cửa hàng">
+                  <select className={INPUT} value={storeEditForm.storeType}
+                    onChange={(e) => setStoreEditForm((f) => ({ ...f, storeType: e.target.value }))}>
+                    {STORE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Trạng thái">
+                  <select className={INPUT}
+                    value={storeEditForm.isActive === false ? 'inactive' : 'active'}
+                    onChange={(e) => setStoreEditForm((f) => ({ ...f, isActive: e.target.value === 'active' }))}>
+                    <option value="active">Hoạt động</option>
+                    <option value="inactive">Ngừng hoạt động</option>
+                  </select>
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Số điện thoại">
+                  <input className={INPUT} value={storeEditForm.phone}
+                    onChange={(e) => setStoreEditForm((f) => ({ ...f, phone: e.target.value }))}
+                    placeholder="0901234567" />
+                </Field>
+                <Field label="Email">
+                  <input type="email" className={INPUT} value={storeEditForm.email}
+                    onChange={(e) => setStoreEditForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="cuahang@business.vn" />
+                </Field>
+              </div>
+
+              <Field label="Địa chỉ">
+                <input className={INPUT} value={storeEditForm.address}
+                  onChange={(e) => setStoreEditForm((f) => ({ ...f, address: e.target.value }))}
+                  placeholder="123 Nguyễn Huệ" />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Quận / Huyện">
+                  <input className={INPUT} value={storeEditForm.district}
+                    onChange={(e) => setStoreEditForm((f) => ({ ...f, district: e.target.value }))}
+                    placeholder="Quận 1" />
+                </Field>
+                <Field label="Tỉnh / Thành phố">
+                  <input className={INPUT} value={storeEditForm.city}
+                    onChange={(e) => setStoreEditForm((f) => ({ ...f, city: e.target.value }))}
+                    placeholder="TP. Hồ Chí Minh" />
+                </Field>
+              </div>
+            </div>
+
+            {updateStoreMut.isError && (
+              <p className="mt-3 text-xs text-destructive">
+                {getApiErrorMessage(updateStoreMut.error, 'Lỗi khi cập nhật cửa hàng.')}
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => { setEditingStore(null); setStoreEditForm(DEFAULT_STORE_FORM); }}
+                className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted transition">
+                Hủy
+              </button>
+              <button
+                onClick={() => {
+                  if (!storeEditForm.storeName.trim()) return;
+                  updateStoreMut.mutate({
+                    storeId: editingStore.id,
+                    body: {
+                      storeName: storeEditForm.storeName.trim(),
+                      ...(storeEditForm.storeCode && { storeCode: storeEditForm.storeCode }),
+                      storeType: storeEditForm.storeType,
+                      phone: storeEditForm.phone || null,
+                      email: storeEditForm.email || null,
+                      address: storeEditForm.address || null,
+                      district: storeEditForm.district || null,
+                      city: storeEditForm.city || null,
+                      ...(storeEditForm.isActive !== undefined && { isActive: storeEditForm.isActive }),
+                    },
+                  });
+                }}
+                disabled={updateStoreMut.isPending || !storeEditForm.storeName.trim()}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition"
+              >
+                {updateStoreMut.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
               </button>
             </div>
           </div>

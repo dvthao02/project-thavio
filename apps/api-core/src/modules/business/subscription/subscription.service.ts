@@ -1,9 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
+import { resolveSubscriptionLifecycle } from '@common/platform/subscription-lifecycle';
 import { businesses, businessSubscriptions } from '@schema/platform';
-
-const TRIAL_DAYS = 10;
 
 @Injectable()
 export class SubscriptionService {
@@ -18,6 +17,8 @@ export class SubscriptionService {
         status: businesses.status,
         subscriptionPlan: businesses.subscriptionPlan,
         createdAt: businesses.createdAt,
+        trialEndsAt: businesses.trialEndsAt,
+        subscriptionExpiresAt: businesses.subscriptionExpiresAt,
       })
       .from(businesses)
       .where(eq(businesses.businessCode, businessCode))
@@ -29,40 +30,32 @@ export class SubscriptionService {
       .select({
         status: businessSubscriptions.status,
         currentPeriodEnd: businessSubscriptions.currentPeriodEnd,
+        renewedAt: businessSubscriptions.renewedAt,
       })
       .from(businessSubscriptions)
       .where(eq(businessSubscriptions.businessId, business.id))
       .limit(1);
 
-    const now = Date.now();
-    const createdAt = new Date(business.createdAt!).getTime();
-    const ageMs = now - createdAt;
-    const ageDays = ageMs / 86_400_000;
-
-    const trialEndsAt = new Date(createdAt + TRIAL_DAYS * 86_400_000).toISOString();
-    const daysLeft = Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - now) / 86_400_000));
-
-    let subscriptionStatus: string;
-
-    if (business.status === 'suspended') {
-      subscriptionStatus = 'suspended';
-    } else if (business.status === 'inactive') {
-      subscriptionStatus = 'cancelled';
-    } else if (sub?.status === 'active' && sub.currentPeriodEnd) {
-      subscriptionStatus = new Date(sub.currentPeriodEnd).getTime() < now ? 'past_due' : 'active';
-    } else if (ageDays <= TRIAL_DAYS) {
-      subscriptionStatus = 'trialing';
-    } else {
-      subscriptionStatus = 'trial_expired';
-    }
+    const lifecycle = resolveSubscriptionLifecycle({
+      businessStatus: business.status,
+      createdAt: business.createdAt,
+      trialEndsAt: business.trialEndsAt,
+      subscriptionStatus: sub?.status,
+      periodEnd: sub?.currentPeriodEnd,
+      renewedAt: sub?.renewedAt,
+      subscriptionExpiresAt: business.subscriptionExpiresAt,
+    });
 
     return {
-      status: subscriptionStatus,
+      status: lifecycle.status,
       plan: business.subscriptionPlan ?? 'standard',
-      isTrialing: subscriptionStatus === 'trialing',
-      isExpired: subscriptionStatus === 'trial_expired' || subscriptionStatus === 'past_due',
-      daysLeft: subscriptionStatus === 'trialing' ? daysLeft : null,
-      trialEndsAt: subscriptionStatus === 'trialing' || subscriptionStatus === 'trial_expired' ? trialEndsAt : null,
+      isTrialing: lifecycle.status === 'trialing',
+      isExpired: lifecycle.status === 'trial_expired' || lifecycle.status === 'past_due',
+      daysLeft: lifecycle.trialDaysLeft,
+      trialEndsAt:
+        lifecycle.status === 'trialing' || lifecycle.status === 'trial_expired'
+          ? lifecycle.trialEndsAt
+          : null,
       periodEnd: sub?.currentPeriodEnd ?? null,
     };
   }

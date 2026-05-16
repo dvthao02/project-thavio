@@ -8,6 +8,7 @@ import { AddAssigneeSchema } from './dto/manage-assignee.dto';
 import { CreateStaffSchema } from './dto/create-staff.dto';
 import { UpdateStaffSchema } from './dto/update-staff.dto';
 import { CreateStoreSchema } from './dto/create-store.dto';
+import { UpdateStoreSchema } from './dto/update-store.dto';
 import { ExtendTrialSchema } from './dto/extend-trial.dto';
 import { RequirePermission } from '@decorators/require-permission.decorator';
 import { resolvePlatformContext, type PlatformRequest } from '@common/auth/platform-context';
@@ -50,6 +51,13 @@ export class BusinessesController {
   createStore(@Param('id') id: string, @Body() body: unknown) {
     const dto = CreateStoreSchema.parse(body);
     return this.businessesService.createStore(id, dto);
+  }
+
+  @RequirePermission('platform.business.update')
+  @Patch(':id/stores/:storeId')
+  updateStore(@Param('id') id: string, @Param('storeId') storeId: string, @Body() body: unknown) {
+    const dto = UpdateStoreSchema.parse(body);
+    return this.businessesService.updateStore(id, storeId, dto);
   }
 
   @RequirePermission('platform.business.view')
@@ -122,5 +130,19 @@ export class BusinessesController {
   updateStaff(@Param('id') id: string, @Param('staffId') staffId: string, @Body() body: unknown) {
     const dto = UpdateStaffSchema.parse(body);
     return this.businessesService.updateStaff(id, staffId, dto);
+  }
+
+  @RequirePermission('platform.business.update')
+  @Patch(':id/plan')
+  updatePlan(@Param('id') id: string, @Body() body: unknown, @Req() req: PlatformRequest) {
+    const { plan } = (body as { plan?: string });
+    const ctx = resolvePlatformContext(req);
+    return this.businessesService.updatePlan(id, plan ?? '', ctx.actorId);
+  }
+
+  @RequirePermission('platform.business.update')
+  @Delete(':id')
+  delete(@Param('id') id: string) {
+    return this.businessesService.delete(id);
   }
 }

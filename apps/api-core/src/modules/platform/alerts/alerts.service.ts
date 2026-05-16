@@ -1,9 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { eq, lt, gte, and, lte, sql } from 'drizzle-orm';
+import { eq, lt, and, sql } from 'drizzle-orm';
 import { PlatformDbService } from '@common/database/platform-db.service';
 import { businesses, businessSubscriptions, accounts } from '@schema/platform';
 
-const TRIAL_DAYS = 10;
 const EXPIRING_THRESHOLD_DAYS = 2;
 
 export type AlertSeverity = 'critical' | 'warning' | 'info';
@@ -33,9 +32,12 @@ export class AlertsService {
     const db = this.platformDb.db;
     const now = new Date();
 
-    const trialExpiringFrom = new Date(now.getTime() - TRIAL_DAYS * 86_400_000);
-    const trialExpiringTo = new Date(now.getTime() - (TRIAL_DAYS - EXPIRING_THRESHOLD_DAYS) * 86_400_000);
-    const trialExpiredBefore = new Date(now.getTime() - TRIAL_DAYS * 86_400_000);
+    const trialDeadlineSql = sql`COALESCE(${businesses.trialEndsAt}, ${businesses.createdAt} + INTERVAL '10 days')`;
+    const paidSubscriptionSql = sql`
+      COALESCE(${businessSubscriptions.status}, '') = 'active'
+      AND (${businessSubscriptions.renewedAt} IS NOT NULL OR ${businesses.subscriptionExpiresAt} IS NOT NULL)
+    `;
+    const unpaidTrialSql = sql`${businesses.status} = 'active' AND NOT (${paidSubscriptionSql})`;
 
     const [
       trialExpiringRows,
@@ -51,15 +53,15 @@ export class AlertsService {
           businessCode: businesses.businessCode,
           legalName: businesses.legalName,
           createdAt: businesses.createdAt,
+          trialEndsAt: trialDeadlineSql,
         })
         .from(businesses)
-        .where(
-          and(
-            eq(businesses.status, 'active'),
-            gte(businesses.createdAt, trialExpiringFrom.toISOString()),
-            lte(businesses.createdAt, trialExpiringTo.toISOString()),
-          ),
-        )
+        .leftJoin(businessSubscriptions, eq(businessSubscriptions.businessId, businesses.id))
+        .where(sql`
+          ${unpaidTrialSql}
+          AND ${trialDeadlineSql} >= NOW()
+          AND ${trialDeadlineSql} <= NOW() + ${EXPIRING_THRESHOLD_DAYS} * INTERVAL '1 day'
+        `)
         .limit(50),
 
       // Trial đã hết (> 10 ngày) nhưng business vẫn active, chưa có subscription active
@@ -69,14 +71,11 @@ export class AlertsService {
           businessCode: businesses.businessCode,
           legalName: businesses.legalName,
           createdAt: businesses.createdAt,
+          trialEndsAt: trialDeadlineSql,
         })
         .from(businesses)
-        .where(
-          and(
-            eq(businesses.status, 'active'),
-            lt(businesses.createdAt, trialExpiredBefore.toISOString()),
-          ),
-        )
+        .leftJoin(businessSubscriptions, eq(businessSubscriptions.businessId, businesses.id))
+        .where(sql`${unpaidTrialSql} AND ${trialDeadlineSql} < NOW()`)
         .limit(50),
 
       // Business bị suspended
@@ -105,6 +104,7 @@ export class AlertsService {
         .where(
           and(
             eq(businessSubscriptions.status, 'active'),
+            sql`${businessSubscriptions.renewedAt} IS NOT NULL OR ${businesses.subscriptionExpiresAt} IS NOT NULL`,
             lt(businessSubscriptions.currentPeriodEnd, now.toISOString()),
           ),
         )
@@ -153,7 +153,7 @@ export class AlertsService {
         description: `${trialExpiredRows.length} doanh nghiệp đã hết trial 10 ngày nhưng chưa có subscription.`,
         count: trialExpiredRows.length,
         items: trialExpiredRows.map((r) => {
-          const overdue = Math.floor((now.getTime() - new Date(r.createdAt!).getTime()) / 86_400_000) - TRIAL_DAYS;
+          const overdue = Math.floor((now.getTime() - new Date(r.trialEndsAt as string).getTime()) / 86_400_000);
           return {
             id: r.id,
             name: r.legalName ?? r.businessCode ?? r.id,
@@ -172,7 +172,7 @@ export class AlertsService {
         description: `${trialExpiringRows.length} doanh nghiệp còn dưới ${EXPIRING_THRESHOLD_DAYS} ngày dùng thử.`,
         count: trialExpiringRows.length,
         items: trialExpiringRows.map((r) => {
-          const daysLeft = TRIAL_DAYS - Math.floor((now.getTime() - new Date(r.createdAt!).getTime()) / 86_400_000);
+          const daysLeft = Math.ceil((new Date(r.trialEndsAt as string).getTime() - now.getTime()) / 86_400_000);
           return {
             id: r.id,
             name: r.legalName ?? r.businessCode ?? r.id,
